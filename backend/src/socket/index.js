@@ -9,12 +9,16 @@ const orchestrators = new Map();
 const screenshotIntervals = new Map();
 
 export function initSocket(server) {
+    const allowedOrigins = process.env.ALLOWED_ORIGINS
+        ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+        : ['http://localhost:5173', 'http://localhost:5174'];
+
     const io = new Server(server, {
         cors: {
-            origin: '*',
+            origin: process.env.NODE_ENV === 'production' ? allowedOrigins : '*',
             methods: ['GET', 'POST']
         },
-        maxHttpBufferSize: 5e6 // 5MB for screenshots
+        maxHttpBufferSize: 10e6 // 10MB for audio blobs + screenshots
     });
 
     io.on('connection', (socket) => {
@@ -89,12 +93,19 @@ export function initSocket(server) {
             }
         });
 
-        // Receive audio from visitor's mic
-        socket.on('audio-chunk', ({ callId, chunk }) => {
+        // Receive complete audio blob from visitor (VAD-triggered on client)
+        socket.on('audio-blob', async ({ callId, audio }) => {
             const orchestrator = orchestrators.get(callId);
             if (orchestrator) {
-                orchestrator.sendAudioChunk(Buffer.from(chunk));
+                const audioBuffer = Buffer.from(audio);
+                await orchestrator.handleAudioBlob(audioBuffer);
             }
+        });
+
+        // Legacy: still accept streaming audio chunks for backward compatibility
+        socket.on('audio-chunk', ({ callId, chunk }) => {
+            // No longer used with Whisper — VAD on client sends complete blobs
+            // Kept for potential future use
         });
 
         // Visitor ends demo

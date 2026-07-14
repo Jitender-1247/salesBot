@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Environment secrets — NEVER commit these
+backend/.env
+backend/.env.local
+frontend/widget/.env.local
+frontend/dashboard/.env.local
+
+# .env.production files contain real URLs, commit them or not — your choice
+# If you commit them, make sure they only have URLs, not secrets
+# frontend/widget/.env.production
+# frontend/dashboard/.env.production
+
+# Build outputs
+frontend/widget/dist/
+frontend/dashboard/dist/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Logs
+*.log
+pm2-*.log
+
+# OS
+.DS_Store
+Thumbs.db

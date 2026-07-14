@@ -1,8 +1,9 @@
 """
 SalesBot — Text-to-Speech Server (Piper TTS)
-Runs on CPU. No GPU required.
+Uses the Piper Python API directly. Runs on CPU. No GPU required.
 
 Usage:
+    pip install piper-tts fastapi uvicorn
     python tts_server.py
 
 Endpoint: POST /v1/audio/speech
@@ -11,9 +12,11 @@ Port: 8000
 
 import io
 import os
+import re
 import wave
 import json
-import re
+import asyncio
+import threading
 from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -23,15 +26,22 @@ from pydantic import BaseModel
 from piper import PiperVoice
 import uvicorn
 
+# Voice model config
 MODELS_DIR = Path(__file__).parent / "tts_models"
 MODELS_DIR.mkdir(exist_ok=True)
 
 DEFAULT_VOICE = os.environ.get("PIPER_VOICE", "en_US-lessac-medium")
 
+# Global voice instance
 piper_voice = None
 
+# Lock to serialise concurrent synthesis calls in the thread pool.
+# Piper's ONNX session is not guaranteed thread-safe, so we protect it.
+_tts_lock = threading.Lock()
 
-def find_onnx_model(voice_name: str):
+
+def find_onnx_model(voice_name: str) -> tuple:
+    """Find the downloaded ONNX model and config files."""
     for onnx_path in MODELS_DIR.rglob("*.onnx"):
         if voice_name.replace("-", "_") in str(onnx_path) or voice_name in str(onnx_path):
             config_path = Path(str(onnx_path) + ".json")
@@ -51,6 +61,7 @@ class SpeechRequest(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global piper_voice
+
     print(f"  Loading Piper voice: {DEFAULT_VOICE}...")
     onnx_path, config_path = find_onnx_model(DEFAULT_VOICE)
 
@@ -65,7 +76,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="SalesBot TTS Server", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="SalesBot TTS Server", version="2.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -74,27 +85,31 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# Regex to match emoji and other unicode symbols that TTS reads aloud
 EMOJI_PATTERN = re.compile(
     "["
-    "\U0001F600-\U0001F64F"
-    "\U0001F300-\U0001F5FF"
-    "\U0001F680-\U0001F6FF"
-    "\U0001F1E0-\U0001F1FF"
-    "\U00002702-\U000027B0"
-    "\U000024C2-\U0001F251"
-    "\U0001f926-\U0001f937"
-    "\U00010000-\U0010ffff"
+    "\U0001F600-\U0001F64F"  # emoticons
+    "\U0001F300-\U0001F5FF"  # symbols & pictographs
+    "\U0001F680-\U0001F6FF"  # transport & map
+    "\U0001F1E0-\U0001F1FF"  # flags
+    "\U00002702-\U000027B0"  # dingbats
+    "\U000024C2-\U0001F251"  # enclosed characters
+    "\U0001f926-\U0001f937"  # gestures
+    "\U00010000-\U0010ffff"  # supplementary chars
     "\u2640-\u2642"
     "\u2600-\u2B55"
-    "\u200d"
-    "\ufe0f"
+    "\u200d"                 # zero width joiner
+    "\ufe0f"                 # variation selector
     "]+",
     flags=re.UNICODE,
 )
 
 
-def clean_text(text: str) -> str:
+def clean_text_for_tts(text: str) -> str:
+    """Remove emojis and clean text for TTS synthesis."""
     cleaned = EMOJI_PATTERN.sub(" ", text)
+    # Collapse multiple spaces
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned
 
@@ -106,17 +121,25 @@ async def health():
 
 @app.post("/v1/audio/speech")
 async def synthesize(request: SpeechRequest):
+    """OpenAI-compatible TTS endpoint."""
     global piper_voice
-    text = clean_text(request.input)
+
+    text = clean_text_for_tts(request.input)
     if not text or not text.strip():
         return Response(content=b"", media_type="audio/wav")
 
     try:
-        audio_buffer = io.BytesIO()
-        with wave.open(audio_buffer, "wb") as wav_file:
-            piper_voice.synthesize_wav(text, wav_file)
-        audio_data = audio_buffer.getvalue()
+        # Run CPU-bound synthesis in a thread pool so the event loop stays responsive
+        def _synthesize() -> bytes:
+            with _tts_lock:  # serialise concurrent chunk requests safely
+                buf = io.BytesIO()
+                with wave.open(buf, "wb") as wav_file:
+                    piper_voice.synthesize_wav(text, wav_file)
+                return buf.getvalue()
+
+        audio_data = await asyncio.to_thread(_synthesize)
         return Response(content=audio_data, media_type="audio/wav")
+
     except Exception as e:
         print(f"  TTS Error: {e}")
         return Response(

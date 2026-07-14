@@ -11,6 +11,7 @@ import authRoutes from './routes/auth.js';
 import productRoutes from './routes/products.js';
 import callRoutes from './routes/calls.js';
 import embedRoutes from './routes/embed.js';
+import avatarRoutes from './routes/avatar.js';
 
 dotenv.config();
 
@@ -20,8 +21,22 @@ const __dirname = dirname(__filename);
 const app = express();
 const server = createServer(app);
 
-// Middleware
-app.use(cors());
+// CORS — in production, only allow listed frontend origins
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+    : ['http://localhost:5173', 'http://localhost:5174'];
+
+app.use(cors({
+    origin: (origin, callback) => {
+        // Allow requests with no origin (e.g. Postman, mobile apps, same-server requests)
+        if (!origin) return callback(null, true);
+        // In development, allow all
+        if (process.env.NODE_ENV !== 'production') return callback(null, true);
+        if (allowedOrigins.includes(origin)) return callback(null, true);
+        callback(new Error(`CORS: origin ${origin} not allowed`));
+    },
+    credentials: true
+}));
 
 // Allow microphone in iframes
 app.use((req, res, next) => {
@@ -44,6 +59,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/calls', callRoutes);
 app.use('/api/embed', embedRoutes);
+app.use('/api/avatar', avatarRoutes);
 
 // Test route
 app.get('/', (req, res) => {

@@ -1,29 +1,45 @@
 import { chromium } from 'playwright';
-import Groq from 'groq-sdk';
 import { decrypt } from '../utils/encryption.js';
 import Product from '../models/Product.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen3:1.7b';
 
 async function analyzePage(pageContent, prompt) {
-    const response = await groq.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
-        messages: [
-            {
-                role: 'system',
-                content: 'You are a product analyst. Analyze web page content and return ONLY valid JSON, no markdown, no backticks, no explanation.'
-            },
-            {
-                role: 'user',
-                content: `${prompt}\n\nPage content:\n${pageContent}`
-            }
-        ],
-        max_tokens: 500
+    const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            model: OLLAMA_MODEL,
+            messages: [
+                {
+                    role: 'system',
+                    content: 'You are a product analyst. Analyze web page content and return ONLY valid JSON, no markdown, no backticks, no explanation. /no_think'
+                },
+                {
+                    role: 'user',
+                    content: `${prompt}\n\nPage content:\n${pageContent}`
+                }
+            ],
+            stream: false,
+            think: false,
+            options: { num_predict: 500, temperature: 0.3 }
+        })
     });
-    return response.choices[0].message.content;
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Ollama error: ${response.status} — ${errorText}`);
+    }
+
+    const data = await response.json();
+    let content = data.message?.content || '';
+    // Strip <think> blocks
+    content = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    return content;
 }
 
 async function extractPageContent(page) {
@@ -219,10 +235,19 @@ export async function exploreProduct(productId) {
         const email = decrypt(product.credentials.email);
         const password = decrypt(product.credentials.password);
 
-        await page.fill(loginSteps.emailSelector, email);
-        await page.fill(loginSteps.passwordSelector, password);
-        await page.click(loginSteps.submitSelector);
-        await page.waitForLoadState('domcontentloaded', { timeout: 15000 });
+        // Fallback selectors if LLM guesses wrong (e.g. SauceDemo uses #user-name)
+        const emailSel = loginSteps.emailSelector.includes('email') ? `${loginSteps.emailSelector}, #user-name, [name="username"]` : loginSteps.emailSelector;
+        const passSel = loginSteps.passwordSelector.includes('password') ? `${loginSteps.passwordSelector}, #password, [name="password"]` : loginSteps.passwordSelector;
+        const submitSel = loginSteps.submitSelector.includes('submit') ? `${loginSteps.submitSelector}, #login-button, [type="submit"]` : loginSteps.submitSelector;
+
+        try {
+            await page.fill(emailSel, email, { timeout: 10000 });
+            await page.fill(passSel, password, { timeout: 10000 });
+            await page.click(submitSel, { timeout: 10000 });
+            await page.waitForLoadState('domcontentloaded', { timeout: 15000 });
+        } catch (e) {
+            console.log('⚠️ Warning: Login form automation failed with primary selectors. Attempting to proceed anyway...', e.message);
+        }
 
         console.log('✅ Logged in — starting page exploration');
 
@@ -230,18 +255,30 @@ export async function exploreProduct(productId) {
 
         await explorePage(page, knowledgeMap, visitedUrls, product.url);
 
-        // Generate product summary
-        const summaryResponse = await groq.chat.completions.create({
-            model: 'llama-3.3-70b-versatile',
-            messages: [
-                {
-                    role: 'user',
-                    content: `Based on these pages from a product, write a 3 sentence summary of what this product does and its key value proposition:\n${knowledgeMap.pages.map(p => `${p.name}: ${p.description}`).join('\n')}`
-                }
-            ],
-            max_tokens: 200
+        // Generate product summary via Ollama
+        const summaryResponse = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model: OLLAMA_MODEL,
+                messages: [
+                    {
+                        role: 'user',
+                        content: `Based on these pages from a product, write a 3 sentence summary of what this product does and its key value proposition:\n${knowledgeMap.pages.map(p => `${p.name}: ${p.description}`).join('\n')} /no_think`
+                    }
+                ],
+                stream: false,
+                think: false,
+                options: { num_predict: 200, temperature: 0.5 }
+            })
         });
-        knowledgeMap.productSummary = summaryResponse.choices[0].message.content;
+
+        if (summaryResponse.ok) {
+            const summaryData = await summaryResponse.json();
+            let summary = summaryData.message?.content || '';
+            summary = summary.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+            knowledgeMap.productSummary = summary;
+        }
 
         await Product.findByIdAndUpdate(productId, {
             knowledgeMap,

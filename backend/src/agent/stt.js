@@ -1,88 +1,66 @@
-import pkg from '@deepgram/sdk';
-const { Deepgram } = pkg;
 import dotenv from 'dotenv';
 dotenv.config();
 
-export async function createSTTStream(onTranscript, onError) {
+const STT_BASE_URL = process.env.STT_BASE_URL || 'http://localhost:8787';
+const STT_MODEL = process.env.STT_MODEL || 'base';
+const STT_LANGUAGE = process.env.STT_LANGUAGE || 'en';
+
+/**
+ * Transcribe an audio blob using local Faster-Whisper server.
+ * This replaces the old Deepgram WebSocket streaming approach
+ * with a simpler HTTP batch transcription.
+ *
+ * @param {Buffer} audioBuffer - WAV/WebM audio data
+ * @param {string} [language] - Language hint (default: 'en')
+ * @returns {Promise<{text: string, language: string}>}
+ */
+export async function transcribeAudio(audioBuffer, language) {
     try {
-        const deepgram = new Deepgram(process.env.DEEPGRAM_API_KEY);
+        const formData = new FormData();
+        const audioBlob = new Blob([audioBuffer], { type: 'audio/webm' });
+        formData.append('file', audioBlob, 'recording.webm');
+        formData.append('model', STT_MODEL);
+        formData.append('language', language || STT_LANGUAGE);
+        formData.append('response_format', 'json');
 
-        const connection = deepgram.transcription.live({
-            model: 'nova-2',
-            language: 'en-US',
-            punctuate: true,
-            interim_results: false,
-            endpointing: 800
+        const response = await fetch(`${STT_BASE_URL}/v1/audio/transcriptions`, {
+            method: 'POST',
+            body: formData,
         });
 
-        let keepAliveInterval = null;
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.log('❌ STT error:', errorText);
+            throw new Error(`STT server error: ${response.status}`);
+        }
 
-        connection.addListener('open', () => {
-            console.log('🎤 STT stream opened (Deepgram)');
+        const data = await response.json();
+        const transcript = data.text?.trim() || '';
+        const detectedLang = data.language || language || 'en';
 
-            // Send keepalive every 5 seconds to prevent timeout
-            keepAliveInterval = setInterval(() => {
-                try {
-                    if (connection.getReadyState() === 1) {
-                        connection.keepAlive();
-                    }
-                } catch (err) {
-                    // ignore
-                }
-            }, 5000);
-        });
+        if (transcript) {
+            console.log(`🗣️ Heard: ${transcript}`);
+        }
 
-        connection.addListener('transcriptReceived', (message) => {
-            try {
-                const data = JSON.parse(message);
-                const transcript = data.channel?.alternatives?.[0]?.transcript;
-                const confidence = data.channel?.alternatives?.[0]?.confidence || 0;
-
-                if (transcript && transcript.trim() && confidence > 0.5) {
-                    console.log(`🗣️ Heard: ${transcript}`);
-                    onTranscript(transcript.trim(), 'en');
-                }
-            } catch (err) {
-                // skip
-            }
-        });
-
-        connection.addListener('error', (err) => {
-            console.log('❌ STT error:', err.message || err);
-            if (onError) onError(err);
-        });
-
-        connection.addListener('close', () => {
-            console.log('🎤 STT stream closed');
-            if (keepAliveInterval) {
-                clearInterval(keepAliveInterval);
-            }
-        });
-
-        return {
-            send: (chunk) => {
-                try {
-                    if (connection.getReadyState() === 1) {
-                        connection.send(chunk);
-                    }
-                } catch (err) {
-                    console.log('⚠️ STT send error:', err.message);
-                }
-            },
-            finish: () => {
-                if (keepAliveInterval) {
-                    clearInterval(keepAliveInterval);
-                }
-                try {
-                    connection.finish();
-                } catch (err) {
-                    // ignore
-                }
-            }
-        };
-
+        return { text: transcript, language: detectedLang };
     } catch (err) {
-        console.log('❌ STT setup error:', err.message);
-        return { send: () => { }, finish: () => { } };
+        console.log('❌ STT error:', err.message);
+        return { text: '', language: language || 'en' };
+    }
+}
+
+/**
+ * Check if the STT server is healthy.
+ * @returns {Promise<boolean>}
+ */
+export async function checkSTTHealth() {
+    try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3000);
+        const res = await fetch(`${STT_BASE_URL}/health`, { signal: controller.signal });
+        clearTimeout(timeout);
+        return res.ok;
+    } catch {
+        return false;
     }
 }

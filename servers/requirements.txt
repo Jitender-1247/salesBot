@@ -1,0 +1,12 @@
+# STT Server dependencies
+faster-whisper
+python-multipart
+
+# TTS Server dependencies
+piper-tts
+huggingface_hub
+
+# Shared
+fastapi
+uvicorn[standard]
+pydantic

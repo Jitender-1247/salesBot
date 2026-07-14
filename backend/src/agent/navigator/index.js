@@ -50,11 +50,21 @@ export class Navigator {
     async login(url, loginSteps, email, password) {
         try {
             await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-            await this.page.fill(loginSteps.emailSelector, email);
-            await this.page.fill(loginSteps.passwordSelector, password);
-            await this.page.click(loginSteps.submitSelector);
-            await this.page.waitForLoadState('domcontentloaded', { timeout: 15000 });
-            console.log('✅ Navigator logged in');
+
+            // Fallback selectors if LLM guessed wrong
+            const emailSel = loginSteps.emailSelector.includes('email') ? `${loginSteps.emailSelector}, #user-name, [name="username"]` : loginSteps.emailSelector;
+            const passSel = loginSteps.passwordSelector.includes('password') ? `${loginSteps.passwordSelector}, #password, [name="password"]` : loginSteps.passwordSelector;
+            const submitSel = loginSteps.submitSelector.includes('submit') ? `${loginSteps.submitSelector}, #login-button, [type="submit"]` : loginSteps.submitSelector;
+
+            try {
+                await this.page.fill(emailSel, email, { timeout: 10000 });
+                await this.page.fill(passSel, password, { timeout: 10000 });
+                await this.page.click(submitSel, { timeout: 10000 });
+                await this.page.waitForLoadState('domcontentloaded', { timeout: 15000 });
+                console.log('✅ Navigator logged in');
+            } catch (e) {
+                console.log('⚠️ Warning: Navigator login form automation failed with primary selectors. Attempting to proceed anyway...', e.message);
+            }
         } catch (err) {
             console.log('❌ Navigator login failed:', err.message);
             throw err;
@@ -73,17 +83,29 @@ export class Navigator {
                     break;
 
                 case 'click_element':
-                    console.log(`👆 Clicking: ${toolArgs.description}`);
-                    await this.page.click(toolArgs.selector, { timeout: 5000 });
-                    await this.page.waitForLoadState('domcontentloaded', { timeout: 10000 });
+                    console.log(`👆 Clicking: ${toolArgs.description} (${toolArgs.selector})`);
+                    try {
+                        const loc = this.page.locator(toolArgs.selector).first();
+                        await loc.click({ timeout: 5000 });
+                    } catch (e) {
+                        console.log('⚠️ Standard click failed, trying force click...');
+                        const loc = this.page.locator(toolArgs.selector).first();
+                        await loc.click({ timeout: 3000, force: true });
+                    }
+                    // Wait briefly for UI animations/modals, but DO NOT wait for full page load 
+                    // since many clicks (like add to cart) don't trigger page reloads.
+                    await this.page.waitForTimeout(800);
                     break;
 
-                case 'scroll_to':
-                    console.log(`📜 Scrolling to: ${toolArgs.description}`);
-                    await this.page.evaluate((selector) => {
-                        const el = document.querySelector(selector);
-                        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    }, toolArgs.selector);
+                case 'scroll_dir':
+                    console.log(`📜 Scrolling ${toolArgs.direction}`);
+                    await this.page.evaluate((dir) => {
+                        const amount = window.innerHeight * 0.7; // scroll 70% of viewport
+                        window.scrollBy({
+                            top: dir === 'down' ? amount : -amount,
+                            behavior: 'smooth'
+                        });
+                    }, toolArgs.direction);
                     await this.page.waitForTimeout(800);
                     break;
 
