@@ -79,7 +79,7 @@ export default function App() {
             <div className="landing-screen">
                 <div className="landing-card">
                     <div className="landing-avatar">🤖</div>
-                    <h2>Hi! I'm Alex</h2>
+                    <h2>Hi! I'm Sofia</h2>
                     <p className="subtitle">Your AI demo specialist</p>
                     <p className="description">
                         I'll give you a live, personalized tour of this product.

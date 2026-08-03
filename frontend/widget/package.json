@@ -10,9 +10,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@livekit/components-react": "^2.9.23",
+    "@livekit/components-styles": "^1.2.0",
+    "livekit-client": "^2.21.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "socket.io-client": "^4.8.3"
+    "simli-client": "^3.0.2",
+    "socket.io-client": "^4.8.3",
+    "wawa-lipsync": "^0.0.2"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

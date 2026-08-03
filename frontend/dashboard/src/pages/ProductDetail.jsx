@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import api from '../api';
 
 export default function ProductDetail() {
     const { id } = useParams();
+    const navigate = useNavigate();
     const [product, setProduct] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [deleting, setDeleting] = useState(false);
 
     useEffect(() => {
         fetchProduct();
@@ -27,6 +29,23 @@ export default function ProductDetail() {
             console.log('Error fetching product:', err);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleDelete = async () => {
+        const confirmed = window.confirm(
+            `Remove "${product.name}"? This will permanently delete this bot along with all of its conversations and leads. This can't be undone.`
+        );
+        if (!confirmed) return;
+
+        try {
+            setDeleting(true);
+            await api.delete(`/products/${id}`);
+            navigate('/products');
+        } catch (err) {
+            console.log('Error deleting product:', err);
+            setDeleting(false);
+            alert('Failed to remove the bot. Please try again.');
         }
     };
 
@@ -128,12 +147,12 @@ export default function ProductDetail() {
                             <div className="flex justify-between items-center">
                                 <span className="text-gray-500 text-sm">Status</span>
                                 <span className={`text-sm font-medium px-2 py-1 rounded-full ${product.explorationStatus === 'ready'
-                                        ? 'bg-green-950 text-green-400'
-                                        : product.explorationStatus === 'exploring'
-                                            ? 'bg-yellow-950 text-yellow-400'
-                                            : product.explorationStatus === 'failed'
-                                                ? 'bg-red-950 text-red-400'
-                                                : 'bg-gray-800 text-gray-400'
+                                    ? 'bg-green-950 text-green-400'
+                                    : product.explorationStatus === 'exploring'
+                                        ? 'bg-yellow-950 text-yellow-400'
+                                        : product.explorationStatus === 'failed'
+                                            ? 'bg-red-950 text-red-400'
+                                            : 'bg-gray-800 text-gray-400'
                                     }`}>
                                     {product.explorationStatus}
                                 </span>
@@ -194,6 +213,23 @@ export default function ProductDetail() {
                             </div>
                         </div>
                     )}
+                </div>
+
+                {/* Danger Zone */}
+                <div className="mt-8 bg-[#1a1a1a] border border-red-900/40 rounded-xl p-6 flex items-center justify-between">
+                    <div>
+                        <h2 className="text-white font-semibold">Remove this bot</h2>
+                        <p className="text-gray-500 text-sm mt-1">
+                            Permanently deletes this bot along with all of its conversations and leads. This can't be undone.
+                        </p>
+                    </div>
+                    <button
+                        onClick={handleDelete}
+                        disabled={deleting}
+                        className="bg-red-950 border border-red-800 hover:bg-red-900 text-red-400 font-semibold px-5 py-2.5 rounded-lg transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                    >
+                        {deleting ? 'Removing...' : '🗑 Remove Bot'}
+                    </button>
                 </div>
             </main>
         </div>

@@ -12,7 +12,7 @@ export class Navigator {
     }
 
     async launch() {
-        this.browser = await chromium.launch({ headless: false });
+        this.browser = await chromium.launch({ headless: process.env.NODE_ENV === 'production' });
         this.page = await this.browser.newPage();
         await this.page.setViewportSize({ width: 1280, height: 720 });
         console.log('🌐 Browser launched');
@@ -71,6 +71,106 @@ export class Navigator {
         }
     }
 
+    /**
+     * Get a rich page context with numbered interactable elements.
+     * This gives the LLM precise targets it can click by ID number.
+     */
+    async getPageContext() {
+        try {
+            if (!this.page) {
+                return "[Warning: Page context unavailable. The browser has been closed or is not initialized.]";
+            }
+
+            const context = await this.page.evaluate(() => {
+                const title = document.title || '';
+                const url = window.location.href;
+
+                // Get headings for page understanding
+                const headings = Array.from(document.querySelectorAll('h1, h2, h3'))
+                    .map(h => h.innerText.trim())
+                    .filter(t => t.length > 0)
+                    .slice(0, 6);
+
+                // Build a numbered list of ALL interactable elements
+                const selectors = 'a, button, [role="button"], input, select, textarea, [onclick], [data-test], [data-testid]';
+                const allElements = Array.from(document.querySelectorAll(selectors));
+
+                const elements = [];
+                let id = 1;
+
+                for (const el of allElements) {
+                    // Skip hidden/invisible elements
+                    const rect = el.getBoundingClientRect();
+                    const style = window.getComputedStyle(el);
+                    if (
+                        style.display === 'none' ||
+                        style.visibility === 'hidden' ||
+                        style.opacity === '0' ||
+                        rect.width === 0 ||
+                        rect.height === 0
+                    ) continue;
+
+                    // Get visible text
+                    let text = (el.innerText || el.textContent || '').trim();
+                    if (text.length > 60) text = text.substring(0, 57) + '...';
+
+                    // Skip elements with no useful text or identifier
+                    const testId = el.getAttribute('data-test') || el.getAttribute('data-testid') || '';
+                    const ariaLabel = el.getAttribute('aria-label') || '';
+                    const placeholder = el.getAttribute('placeholder') || '';
+                    const name = el.getAttribute('name') || '';
+                    const elId = el.id || '';
+                    const href = el.getAttribute('href') || '';
+                    const type = el.getAttribute('type') || '';
+
+                    // Must have at least SOME identifying feature
+                    if (!text && !testId && !ariaLabel && !elId && !placeholder && !href) continue;
+
+                    // Build the best CSS selector for this element
+                    let selector = '';
+                    if (testId) selector = `[data-test="${testId}"]`;
+                    else if (el.getAttribute('data-testid')) selector = `[data-testid="${el.getAttribute('data-testid')}"]`;
+                    else if (elId) selector = `#${elId}`;
+                    else if (name) selector = `${el.tagName.toLowerCase()}[name="${name}"]`;
+                    else selector = '';  // Will use text-based click
+
+                    const tag = el.tagName.toLowerCase();
+                    const role = el.getAttribute('role') || (tag === 'a' ? 'link' : tag === 'button' ? 'button' : tag === 'input' ? 'input' : '');
+
+                    // Is it currently in the viewport?
+                    const inViewport = rect.top < window.innerHeight && rect.bottom > 0;
+
+                    elements.push({
+                        id: id++,
+                        tag,
+                        role,
+                        text: text || ariaLabel || placeholder || `[${tag}]`,
+                        testId,
+                        selector,
+                        href: tag === 'a' ? href : '',
+                        type,
+                        visible: inViewport
+                    });
+
+                    // Cap at 30 elements to keep prompt manageable
+                    if (id > 30) break;
+                }
+
+                return { title, url, headings, elements };
+            });
+
+            return context;
+        } catch (err) {
+            console.log('⚠️ Could not get page context:', err.message);
+            return {
+                title: '',
+                url: this.page?.url() || '',
+                headings: [],
+                elements: []
+            };
+        }
+    }
+
     async executeAction(toolName, toolArgs) {
         try {
             switch (toolName) {
@@ -82,20 +182,92 @@ export class Navigator {
                     });
                     break;
 
-                case 'click_element':
+                case 'click_element': {
                     console.log(`👆 Clicking: ${toolArgs.description} (${toolArgs.selector})`);
-                    try {
-                        const loc = this.page.locator(toolArgs.selector).first();
-                        await loc.click({ timeout: 5000 });
-                    } catch (e) {
-                        console.log('⚠️ Standard click failed, trying force click...');
-                        const loc = this.page.locator(toolArgs.selector).first();
-                        await loc.click({ timeout: 3000, force: true });
+                    let clicked = false;
+
+                    // Strategy 1: Try exact text match via Playwright locator
+                    if (toolArgs.selector.startsWith('text=')) {
+                        const searchText = toolArgs.selector.replace(/^text="?/, '').replace(/"?$/, '');
+                        try {
+                            // Try getByText with exact match first
+                            const exactLoc = this.page.getByText(searchText, { exact: true }).first();
+                            await exactLoc.click({ timeout: 3000 });
+                            clicked = true;
+                            console.log('  ✅ Clicked via exact text match');
+                        } catch {
+                            // Try partial text match
+                            try {
+                                const partialLoc = this.page.getByText(searchText).first();
+                                await partialLoc.click({ timeout: 3000 });
+                                clicked = true;
+                                console.log('  ✅ Clicked via partial text match');
+                            } catch {
+                                // Try getByRole with name
+                                try {
+                                    const roleLoc = this.page.getByRole('link', { name: searchText }).or(
+                                        this.page.getByRole('button', { name: searchText })
+                                    ).first();
+                                    await roleLoc.click({ timeout: 3000 });
+                                    clicked = true;
+                                    console.log('  ✅ Clicked via role match');
+                                } catch {
+                                    // Final: try CSS selector-based approach
+                                    try {
+                                        const cssLoc = this.page.locator(`a:has-text("${searchText}"), button:has-text("${searchText}"), [class*="item"]:has-text("${searchText}")`).first();
+                                        await cssLoc.click({ timeout: 3000 });
+                                        clicked = true;
+                                        console.log('  ✅ Clicked via CSS has-text');
+                                    } catch {
+                                        console.log('  ❌ All text-based click strategies failed');
+                                    }
+                                }
+                            }
+                        }
                     }
-                    // Wait briefly for UI animations/modals, but DO NOT wait for full page load 
-                    // since many clicks (like add to cart) don't trigger page reloads.
+
+                    // Strategy 2: Direct CSS selector
+                    if (!clicked) {
+                        try {
+                            const loc = this.page.locator(toolArgs.selector).first();
+                            await loc.click({ timeout: 3000 });
+                            clicked = true;
+                            console.log('  ✅ Clicked via direct selector');
+                        } catch {
+                            // Force click as last resort
+                            try {
+                                const loc = this.page.locator(toolArgs.selector).first();
+                                await loc.click({ timeout: 3000, force: true });
+                                clicked = true;
+                                console.log('  ✅ Clicked via force click');
+                            } catch (e) {
+                                console.log(`  ❌ Click completely failed: ${e.message}`);
+                            }
+                        }
+                    }
+
+                    // Wait briefly for UI animations/modals
                     await this.page.waitForTimeout(800);
                     break;
+                }
+
+                case 'type_text': {
+                    console.log(`⌨️ Typing into: ${toolArgs.selector}`);
+                    try {
+                        const loc = this.page.locator(toolArgs.selector).first();
+                        await loc.fill(toolArgs.text, { timeout: 5000 });
+                    } catch {
+                        // Try by placeholder
+                        try {
+                            const loc = this.page.getByPlaceholder(toolArgs.selector).first();
+                            await loc.fill(toolArgs.text, { timeout: 3000 });
+                        } catch (e) {
+                            console.log(`  ❌ Type failed: ${e.message}`);
+                        }
+                    }
+                    await this.page.waitForTimeout(500);
+                    break;
+                }
 
                 case 'scroll_dir':
                     console.log(`📜 Scrolling ${toolArgs.direction}`);

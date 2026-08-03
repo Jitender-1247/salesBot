@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    env_file:
+      - ./backend/.env
+    environment:
+      - STT_API_URL=http://stt-server:8787
+      - PORT=5000
+    depends_on:
+      - stt-server
+    restart: unless-stopped
+    # Required for Playwright to run correctly in Docker
+    ipc: host
+
+  stt-server:
+    build:
+      context: ./servers
+      dockerfile: Dockerfile
+    command: [ "python", "stt_server.py" ]
+    ports:
+      - "8787:8787"
+    restart: unless-stopped
+    # Use host IPC for better performance with local models if needed
+    ipc: host
+
+  tts-server:
+    build:
+      context: ./servers
+      dockerfile: Dockerfile
+    command: [ "python", "tts_server.py" ]
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    # No exposed API key needed since it uses edge-tts
+
+  keyframe-agent:
+    build:
+      context: ./servers
+      dockerfile: Dockerfile
+    command: [ "python", "keyframe_agent.py", "start" ]
+    env_file:
+      - ./backend/.env # Reuse backend env for LiveKit keys
+    environment:
+      - TTS_BASE_URL=http://tts-server:8000
+    depends_on:
+      - tts-server
+    restart: unless-stopped

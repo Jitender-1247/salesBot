@@ -1,7 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import AudioPlayer from './AudioPlayer';
 import AudioRecorder from './AudioRecorder';
-import ConversationPanel from './ConversationPanel';
+import KeyframeAvatar from './KeyframeAvatar';
+
 const stateLabels = {
     idle: 'Ready',
     listening: 'Listening',
@@ -17,8 +18,12 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
     const [userText, setUserText] = useState('');
     const [isSpeaking, setIsSpeaking] = useState(false);
     const [duration, setDuration] = useState(0);
+    const [livekitUrl, setLivekitUrl] = useState('');
+    const [visitorToken, setVisitorToken] = useState('');
     const audioPlayerRef = useRef(null);
     const timerRef = useRef(null);
+    const typingRef = useRef(null);  // interval for word-by-word transcript
+    const [displayedText, setDisplayedText] = useState(''); // animated transcript
 
     const genId = () => `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
@@ -37,9 +42,30 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
             if (data.speaking) {
                 setAgentState('speaking');
                 setIsSpeaking(true);
+
+                // ── Word-by-word typewriter effect ──
+                // Clear any previous animation
+                clearInterval(typingRef.current);
+                setDisplayedText('');
+
+                const words = data.text.split(' ');
+                // ~150 wpm = 2.5 words/sec = 400ms per word
+                const msPerWord = 400;
+                let wordIdx = 0;
+
+                typingRef.current = setInterval(() => {
+                    wordIdx++;
+                    setDisplayedText(words.slice(0, wordIdx).join(' '));
+                    if (wordIdx >= words.length) {
+                        clearInterval(typingRef.current);
+                    }
+                }, msPerWord);
+
             } else {
+                clearInterval(typingRef.current);
                 if (data.interrupted) {
                     audioPlayerRef.current?.stop();
+                    setDisplayedText('');
                 }
                 setIsSpeaking(false);
             }
@@ -59,8 +85,8 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
         };
 
         const onAgentAudio = (audioData) => {
-            // Convert audio buffer to blob URL and enqueue
-            const blob = new Blob([audioData], { type: 'audio/wav' });
+            // Enqueue in AudioPlayer for timing callbacks only (audio comes via LiveKit)
+            const blob = new Blob([audioData], { type: 'audio/mp3' });
             const url = URL.createObjectURL(blob);
             audioPlayerRef.current?.enqueue(url);
         };
@@ -143,7 +169,10 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
     const handlePlaybackEnd = useCallback(() => {
         setAgentState('idle');
         setIsSpeaking(false);
-    }, []);
+        if (socket && callData) {
+            socket.emit('audio-playback-complete', { callId: callData.callId });
+        }
+    }, [socket, callData]);
 
     const handlePlaybackStart = useCallback(() => {
         setAgentState('speaking');
@@ -170,12 +199,19 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
         return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
     };
 
+    const handleAvatarReady = useCallback(() => {
+        if (socket && callData) {
+            console.log('[DemoView] Avatar track attached, notifying backend...');
+            socket.emit('avatar-ready', { callId: callData.callId });
+        }
+    }, [socket, callData]);
+
     return (
         <div className="app-container">
             {/* Header */}
             <header className="app-header">
                 <div>
-                    <h1 className="app-title">Alex</h1>
+                    <h1 className="app-title">Sofia</h1>
                     <p className="app-subtitle">AI Demo Specialist</p>
                 </div>
                 <div className="header-right">
@@ -220,12 +256,20 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
                             </div>
                         )}
 
-                        {/* Avatar overlay removed permanently */}
+                        {/* Avatar overlay — Keyframe real-time WebRTC avatar */}
+                        <div className="avatar-overlay">
+                            <KeyframeAvatar
+                                livekitUrl={callData?.livekitUrl || livekitUrl}
+                                token={callData?.visitorToken || visitorToken}
+                                speaking={isSpeaking}
+                                onReady={handleAvatarReady}
+                            />
+                        </div>
 
-                        {/* Agent transcript overlay (bottom, next to avatar) */}
-                        {agentText && (
+                        {/* Agent transcript overlay — word-by-word as Sofia speaks */}
+                        {displayedText && (
                             <div className="agent-transcript-overlay">
-                                <p>{agentText}</p>
+                                <p>{displayedText}</p>
                             </div>
                         )}
                     </div>
@@ -234,6 +278,7 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
                     <div className="controls-bar">
                         <AudioPlayer
                             ref={audioPlayerRef}
+                            muted={true}
                             onPlaybackStart={handlePlaybackStart}
                             onPlaybackEnd={handlePlaybackEnd}
                         />
@@ -248,12 +293,6 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
                         />
                     </div>
                 </div>
-
-                {/* Conversation Panel (right sidebar) */}
-                <ConversationPanel
-                    messages={messages}
-                    isProcessing={agentState === 'processing'}
-                />
             </main>
         </div>
     );

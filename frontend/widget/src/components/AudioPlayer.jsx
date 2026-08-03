@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, useCallback, useImperativeHandle, forwardRef } from 'react';
 
-const AudioPlayer = forwardRef(function AudioPlayer({ onPlaybackEnd, onPlaybackStart }, ref) {
+const AudioPlayer = forwardRef(function AudioPlayer({ onPlaybackEnd, onPlaybackStart, muted = false }, ref) {
     const audioEls = useRef(null);
     const activeIdx = useRef(0);
     const loadedUrls = useRef(['', '']);
@@ -21,6 +21,13 @@ const AudioPlayer = forwardRef(function AudioPlayer({ onPlaybackEnd, onPlaybackS
             audioEls.current = null;
         };
     }, []);
+
+    useEffect(() => {
+        if (audioEls.current) {
+            audioEls.current[0].muted = muted;
+            audioEls.current[1].muted = muted;
+        }
+    }, [muted]);
 
     useEffect(() => {
         if (!isPlaying) { setBars(Array(20).fill(4)); return; }
@@ -130,7 +137,13 @@ const AudioPlayer = forwardRef(function AudioPlayer({ onPlaybackEnd, onPlaybackS
         return isPlayingRef.current || queueRef.current.length > 0;
     }, []);
 
-    useImperativeHandle(ref, () => ({ enqueue, stop, isActive }), [enqueue, stop, isActive]);
+    const getAudioElement = useCallback(() => {
+        const els = audioEls.current;
+        if (!els) return null;
+        return els[activeIdx.current];
+    }, []);
+
+    useImperativeHandle(ref, () => ({ enqueue, stop, isActive, getAudioElement }), [enqueue, stop, isActive, getAudioElement]);
 
     if (!isPlaying) return null;
 

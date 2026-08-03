@@ -8,6 +8,23 @@ const leadSchema = new mongoose.Schema({
     prospectEmail: String,
     qualified: { type: Boolean, default: false },
     notes: String,
+
+    // Lead lifecycle status (shown in dashboard Leads tab)
+    status: {
+        type: String,
+        enum: ['Not Contacted', 'Contacted', 'Qualified', 'Lost', 'Converted'],
+        default: 'Not Contacted'
+    },
+
+    // Zoho CRM sync fields
+    zohoLeadId: { type: String, default: '' },
+    zohoSyncStatus: {
+        type: String,
+        enum: ['pending', 'synced', 'failed', 'skipped'],
+        default: 'pending'
+    },
+    zohoSyncError: { type: String, default: '' },
+
     createdAt: { type: Date, default: Date.now }
 });
 

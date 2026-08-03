@@ -1,9 +1,8 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 const navItems = [
-    { path: '/', icon: '▦', label: 'Dashboard' },
+    { path: '/', icon: '🤖', label: 'Bots' },
     { path: '/products', icon: '⚙', label: 'Products' },
-    { path: '/calls', icon: '📞', label: 'Calls' },
 ];
 
 export default function Sidebar() {
@@ -19,13 +18,9 @@ export default function Sidebar() {
 
     return (
         <div className="w-64 min-h-screen bg-[#1a1a1a] border-r border-[#2a2a2a] flex flex-col">
-
-            {/* Logo */}
             <div className="px-6 py-6 border-b border-[#2a2a2a]">
                 <span className="text-xl font-black text-indigo-500">⚡ SalesBot</span>
             </div>
-
-            {/* Nav */}
             <nav className="flex-1 px-3 py-4 space-y-1">
                 {navItems.map(item => {
                     const isActive = location.pathname === item.path;
@@ -43,8 +38,6 @@ export default function Sidebar() {
                         </Link>
                     );
                 })}
-
-                {/* Add Product Button */}
                 <Link
                     to="/products/new"
                     className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-indigo-400 hover:bg-indigo-950 hover:text-indigo-300 transition-colors mt-4"
@@ -53,8 +46,6 @@ export default function Sidebar() {
                     <span>Add Product</span>
                 </Link>
             </nav>
-
-            {/* User */}
             <div className="px-3 py-4 border-t border-[#2a2a2a]">
                 <div className="flex items-center gap-3 px-4 py-3 rounded-lg">
                     <div className="w-8 h-8 bg-indigo-600 rounded-full flex items-center justify-center text-white text-sm font-bold">

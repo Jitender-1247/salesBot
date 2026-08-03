@@ -23,7 +23,7 @@ export default function ConversationPanel({ messages, isProcessing }) {
                     <div className="empty-state">
                         <div className="empty-state-icon">🎙️</div>
                         <h3>Start Speaking</h3>
-                        <p>Just speak naturally — Alex is always listening and ready to help.</p>
+                        <p>Just speak naturally — Sofia is always listening and ready to help.</p>
                     </div>
                 )}
 
@@ -34,7 +34,7 @@ export default function ConversationPanel({ messages, isProcessing }) {
                         </div>
                         <div className="message-meta">
                             <span className="message-role">
-                                {message.role === 'user' ? 'You' : 'Alex'}
+                                {message.role === 'user' ? 'You' : 'Sofia'}
                             </span>
                             <span>·</span>
                             <span>{formatTime(message.timestamp)}</span>
@@ -50,7 +50,7 @@ export default function ConversationPanel({ messages, isProcessing }) {
                             <span />
                         </div>
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                            Alex is thinking…
+                            Sofia is thinking…
                         </span>
                     </div>
                 )}

@@ -1,9 +1,9 @@
 """
-SalesBot — Text-to-Speech Server (Piper TTS)
-Uses the Piper Python API directly. Runs on CPU. No GPU required.
+SalesBot — Text-to-Speech Server (Edge TTS)
+Uses Microsoft Edge TTS for free, natural-sounding voices.
 
 Usage:
-    pip install piper-tts fastapi uvicorn
+    pip install edge-tts fastapi uvicorn
     python tts_server.py
 
 Endpoint: POST /v1/audio/speech
@@ -13,45 +13,30 @@ Port: 8000
 import io
 import os
 import re
-import wave
 import json
 import asyncio
-import threading
-from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel
-from piper import PiperVoice
+import edge_tts
 import uvicorn
 
-# Voice model config
-MODELS_DIR = Path(__file__).parent / "tts_models"
-MODELS_DIR.mkdir(exist_ok=True)
+# Voice config — Edge TTS voices
+# Some great natural-sounding voices:
+#   en-US-GuyNeural      — male, warm, conversational
+#   en-US-JennyNeural    — female, friendly, clear
+#   en-US-AriaNeural     — female, natural, engaging
+#   en-US-DavisNeural    — male, confident, professional
+#   en-GB-SoniaNeural    — female, British, professional
+#   en-IN-NeerjaNeural   — female, Indian English
 
-DEFAULT_VOICE = os.environ.get("PIPER_VOICE", "en_US-lessac-medium")
-
-# Global voice instance
-piper_voice = None
-
-# Lock to serialise concurrent synthesis calls in the thread pool.
-# Piper's ONNX session is not guaranteed thread-safe, so we protect it.
-_tts_lock = threading.Lock()
-
-
-def find_onnx_model(voice_name: str) -> tuple:
-    """Find the downloaded ONNX model and config files."""
-    for onnx_path in MODELS_DIR.rglob("*.onnx"):
-        if voice_name.replace("-", "_") in str(onnx_path) or voice_name in str(onnx_path):
-            config_path = Path(str(onnx_path) + ".json")
-            if config_path.exists():
-                return str(onnx_path), str(config_path)
-    return None, None
+DEFAULT_VOICE = os.environ.get("EDGE_VOICE", "en-US-AriaNeural")
 
 
 class SpeechRequest(BaseModel):
-    model: str = "piper"
+    model: str = "edge"
     input: str
     voice: str = "default"
     speed: float = 1.0
@@ -60,23 +45,12 @@ class SpeechRequest(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global piper_voice
-
-    print(f"  Loading Piper voice: {DEFAULT_VOICE}...")
-    onnx_path, config_path = find_onnx_model(DEFAULT_VOICE)
-
-    if onnx_path is None:
-        print(f"  [ERROR] Voice model not found!")
-        print(f"  Run: python download_voice.py")
-        raise FileNotFoundError(f"Voice model '{DEFAULT_VOICE}' not found in {MODELS_DIR}")
-
-    print(f"  Model: {onnx_path}")
-    piper_voice = PiperVoice.load(onnx_path, config_path=config_path)
-    print(f"  [OK] Piper voice loaded and ready!")
+    print(f"  Edge TTS voice: {DEFAULT_VOICE}")
+    print(f"  [OK] Edge TTS ready!")
     yield
 
 
-app = FastAPI(title="SalesBot TTS Server", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="SalesBot TTS Server", version="3.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -116,29 +90,41 @@ def clean_text_for_tts(text: str) -> str:
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "voice": DEFAULT_VOICE, "engine": "piper"}
+    return {"status": "ok", "voice": DEFAULT_VOICE, "engine": "edge-tts"}
 
 
 @app.post("/v1/audio/speech")
 async def synthesize(request: SpeechRequest):
-    """OpenAI-compatible TTS endpoint."""
-    global piper_voice
-
+    """OpenAI-compatible TTS endpoint using Edge TTS."""
     text = clean_text_for_tts(request.input)
     if not text or not text.strip():
         return Response(content=b"", media_type="audio/wav")
 
     try:
-        # Run CPU-bound synthesis in a thread pool so the event loop stays responsive
-        def _synthesize() -> bytes:
-            with _tts_lock:  # serialise concurrent chunk requests safely
-                buf = io.BytesIO()
-                with wave.open(buf, "wb") as wav_file:
-                    piper_voice.synthesize_wav(text, wav_file)
-                return buf.getvalue()
+        # Determine the voice to use
+        voice = DEFAULT_VOICE
 
-        audio_data = await asyncio.to_thread(_synthesize)
-        return Response(content=audio_data, media_type="audio/wav")
+        # Build rate string from speed parameter
+        rate_percent = int((request.speed - 1.0) * 100)
+        rate_str = f"+{rate_percent}%" if rate_percent >= 0 else f"{rate_percent}%"
+
+        # Use edge-tts to generate audio
+        communicate = edge_tts.Communicate(text, voice, rate=rate_str)
+
+        # Collect all MP3 audio data first, then return as a single response
+        # (streaming causes the backend fetch().arrayBuffer() to hang)
+        audio_chunks = []
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                audio_chunks.append(chunk["data"])
+
+        audio_data = b"".join(audio_chunks)
+
+        if not audio_data:
+            print("  [WARN] Edge TTS returned empty audio")
+            return Response(content=b"", media_type="audio/mpeg")
+
+        return Response(content=audio_data, media_type="audio/mpeg")
 
     except Exception as e:
         print(f"  TTS Error: {e}")
@@ -152,6 +138,6 @@ async def synthesize(request: SpeechRequest):
 if __name__ == "__main__":
     print("\n--- SalesBot TTS Server starting on http://localhost:8000 ---")
     print(f"   Voice: {DEFAULT_VOICE}")
-    print(f"   Engine: Piper TTS (CPU)")
+    print(f"   Engine: Edge TTS (Microsoft Neural)")
     print()
     uvicorn.run(app, host="0.0.0.0", port=8000)

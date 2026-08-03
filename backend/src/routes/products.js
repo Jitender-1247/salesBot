@@ -1,5 +1,7 @@
 import express from 'express';
 import Product from '../models/Product.js';
+import Call from '../models/Call.js';
+import Lead from '../models/Lead.js';
 import { encrypt } from '../utils/encryption.js';
 import { exploreProduct } from '../explorer/index.js';
 import { protect } from '../utils/authMiddleware.js';
@@ -86,6 +88,28 @@ router.get('/:id', protect, async (req, res) => {
     }
 
     res.json(product);
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+});
+
+// Delete a product (bot) — cascades to its calls and leads
+router.delete('/:id', protect, async (req, res) => {
+  try {
+    const product = await Product.findOne({
+      _id: req.params.id,
+      clientId: req.clientId
+    });
+
+    if (!product) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+
+    await Call.deleteMany({ productId: product._id, clientId: req.clientId });
+    await Lead.deleteMany({ productId: product._id, clientId: req.clientId });
+    await Product.deleteOne({ _id: product._id });
+
+    res.json({ message: 'Bot removed successfully' });
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message });
   }

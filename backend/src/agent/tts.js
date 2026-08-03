@@ -11,11 +11,11 @@ export async function speak(text, signal) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                model: 'piper',
+                model: 'tts-1',
                 input: text,
-                voice: 'en_US-lessac-medium',
+                voice: 'alloy',
                 speed: 1.0,
-                response_format: 'wav'
+                response_format: 'mp3'
             }),
             signal
         });

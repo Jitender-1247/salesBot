@@ -1,10 +1,12 @@
 import { useRef, useCallback, useEffect, useState } from 'react';
 
 // VAD (Voice Activity Detection) thresholds
-const SILENCE_THRESHOLD = 0.015;
-const SPEECH_THRESHOLD = 0.025;
-const SILENCE_DURATION_MS = 700;
-const MIN_SPEECH_DURATION_MS = 200;
+// Higher thresholds = less sensitive to background noise
+const SILENCE_THRESHOLD = 0.03;
+const SPEECH_THRESHOLD = 0.06;
+const SILENCE_DURATION_MS = 400; // Reduced from 800ms for faster turnaround
+const MIN_SPEECH_DURATION_MS = 500;
+const SPEECH_CONFIRM_TICKS = 3; // Require 3 consecutive ticks of speech before capture
 
 export default function AudioRecorder({
     disabled = false,
@@ -25,6 +27,7 @@ export default function AudioRecorder({
     const speechStartRef = useRef(null);
     const isActiveRef = useRef(false);
     const isRecordingRef = useRef(false);
+    const speechConfirmCountRef = useRef(0); // Consecutive speech ticks counter
 
     const [isListening, setIsListening] = useState(false);
     const [isCapturing, setIsCapturing] = useState(false);
@@ -52,7 +55,7 @@ export default function AudioRecorder({
             isRecordingRef.current = false;
             setIsCapturing(false);
 
-            if (audioBlob.size > 1000) {
+            if (audioBlob.size > 3000) {
                 onRecordingComplete(audioBlob);
             }
         };
@@ -115,10 +118,18 @@ export default function AudioRecorder({
             }
         } else if (!isProcessing && !disabled) {
             if (isSpeech) {
-                if (isSpeaking) {
-                    onInterrupt();
+                // Require sustained speech (multiple consecutive ticks) to avoid noise triggers
+                speechConfirmCountRef.current += 1;
+                if (speechConfirmCountRef.current >= SPEECH_CONFIRM_TICKS) {
+                    if (isSpeaking) {
+                        onInterrupt();
+                    }
+                    startCapture();
+                    speechConfirmCountRef.current = 0;
                 }
-                startCapture();
+            } else {
+                // Reset confirmation counter on silence
+                speechConfirmCountRef.current = 0;
             }
         }
     }, [getVolume, isProcessing, isSpeaking, onInterrupt, startCapture, stopCapture, disabled]);
