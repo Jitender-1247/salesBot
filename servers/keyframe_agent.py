@@ -38,9 +38,9 @@ TTS_BASE_URL = os.getenv('TTS_BASE_URL', 'http://localhost:8000')
 KEYFRAME_PERSONA_ID = os.getenv('KEYFRAME_PERSONA_ID', '')
 KEYFRAME_PERSONA_SLUG = os.getenv('KEYFRAME_PERSONA_SLUG', '')
 
-# Chunk size: 100ms of audio at 24kHz mono
-# Larger chunks = fewer async operations = smoother audio (no gap artifacts)
-CHUNK_SAMPLES = int(SAMPLE_RATE * 0.10)  # 2400 samples per 100ms
+# Chunk size: 50ms of audio at 24kHz mono
+# Smaller chunks = lower latency, but higher CPU overhead and potential for stuttering
+CHUNK_SAMPLES = int(SAMPLE_RATE * 0.05)  # 1200 samples per 50ms
 
 
 async def fetch_mp3_and_push_frames(text: str, audio_output: DataStreamAudioOutput):
