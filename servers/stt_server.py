@@ -61,9 +61,10 @@ async def transcribe(
             segs, inf = whisper_model.transcribe(
                 tmp_path,
                 language=language if language != "auto" else None,
-                beam_size=1,       # Greedy decode — much faster, minimal quality loss
-                vad_filter=True,   # Voice activity detection for better results
-                condition_on_previous_text=False,  # Avoid slow conditioning on prior context
+                beam_size=5,       # Increased to 5 for much higher transcription accuracy
+                vad_filter=True,   
+                vad_parameters=dict(threshold=0.5, min_speech_duration_ms=250), # Aggressively strip background noise
+                condition_on_previous_text=False,
             )
             return list(segs), inf  # materialize generator before leaving thread
 

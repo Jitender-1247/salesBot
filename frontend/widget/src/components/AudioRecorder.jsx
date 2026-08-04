@@ -2,8 +2,8 @@ import { useRef, useCallback, useEffect, useState } from 'react';
 
 // VAD (Voice Activity Detection) thresholds
 // Higher thresholds = less sensitive to background noise
-const SILENCE_THRESHOLD = 0.03;
-const SPEECH_THRESHOLD = 0.06;
+const SILENCE_THRESHOLD = 0.05;
+const SPEECH_THRESHOLD = 0.12;
 const SILENCE_DURATION_MS = 400; // Reduced from 800ms for faster turnaround
 const MIN_SPEECH_DURATION_MS = 500;
 const SPEECH_CONFIRM_TICKS = 3; // Require 3 consecutive ticks of speech before capture
