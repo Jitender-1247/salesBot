@@ -12,7 +12,7 @@ export class Navigator {
     }
 
     async launch() {
-        this.browser = await chromium.launch({ headless: process.env.NODE_ENV === 'production' });
+        this.browser = await chromium.launch({ headless: true });
         this.page = await this.browser.newPage();
         await this.page.setViewportSize({ width: 1280, height: 720 });
         console.log('🌐 Browser launched');
