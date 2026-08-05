@@ -227,15 +227,31 @@ export async function exploreProduct(productId) {
         const email = decrypt(product.credentials.email);
         const password = decrypt(product.credentials.password);
 
-        // Fallback selectors if LLM guesses wrong (e.g. SauceDemo uses #user-name)
-        const emailSel = loginSteps.emailSelector.includes('email') ? `${loginSteps.emailSelector}, #user-name, [name="username"]` : loginSteps.emailSelector;
-        const passSel = loginSteps.passwordSelector.includes('password') ? `${loginSteps.passwordSelector}, #password, [name="password"]` : loginSteps.passwordSelector;
-        const submitSel = loginSteps.submitSelector.includes('submit') ? `${loginSteps.submitSelector}, #login-button, [type="submit"]` : loginSteps.submitSelector;
+        // Unconditional fallback selectors to guarantee we can find the inputs even if LLM guessed wrong
+        const emailSel = `${loginSteps.emailSelector}, #user-name, [name="username"], [name="login_id"], input[type="email"], input[name="email"], #login_id`;
+        const passSel = `${loginSteps.passwordSelector}, #password, [name="password"], input[type="password"]`;
+        const submitSel = `${loginSteps.submitSelector}, #login-button, [type="submit"], button#nextbtn, button#submit, .login-btn`;
 
         try {
             await page.fill(emailSel, email, { timeout: 10000 });
+            
+            // If password field is missing, click Next first (Two-Step Login like Zoho)
+            let passVisible = await page.isVisible(passSel).catch(()=>false);
+            if (!passVisible) {
+                console.log('Password field hidden — assuming two-step login. Clicking next...');
+                await page.click(submitSel, { timeout: 5000 }).catch(()=>{});
+                await page.waitForTimeout(2000); // Wait for animation
+            }
+
             await page.fill(passSel, password, { timeout: 10000 });
-            await page.click(submitSel, { timeout: 10000 });
+            
+            // Submit final login
+            try {
+                await page.click(submitSel, { timeout: 5000 });
+            } catch {
+                await page.keyboard.press('Enter');
+            }
+            
             await page.waitForLoadState('domcontentloaded', { timeout: 15000 });
         } catch (e) {
             console.log('⚠️ Warning: Login form automation failed with primary selectors. Attempting to proceed anyway...', e.message);
