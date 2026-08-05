@@ -4,8 +4,8 @@ import { useRef, useCallback, useEffect, useState } from 'react';
 // Higher thresholds = less sensitive to background noise
 const SILENCE_THRESHOLD = 0.02;
 const SPEECH_THRESHOLD = 0.04;
-const SILENCE_DURATION_MS = 400; // Reduced from 800ms for faster turnaround
-const MIN_SPEECH_DURATION_MS = 500;
+const SILENCE_DURATION_MS = 1500; // Increased to allow natural pauses while speaking
+const MIN_SPEECH_DURATION_MS = 800;
 const SPEECH_CONFIRM_TICKS = 3; // Require 3 consecutive ticks of speech before capture
 
 export default function AudioRecorder({
