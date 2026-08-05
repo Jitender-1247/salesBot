@@ -71,8 +71,25 @@ export class Navigator {
             // we load them directly into the browser and skip the login form entirely.
             if (sessionCookies) {
                 try {
-                    const cookies = JSON.parse(sessionCookies);
+                    let cookies = JSON.parse(sessionCookies);
                     if (Array.isArray(cookies) && cookies.length > 0) {
+                        // Normalize cookies from extensions like Cookie Editor for Playwright
+                        cookies = cookies.map(c => {
+                            const cookie = { ...c };
+                            if (cookie.sameSite === 'no_restriction') cookie.sameSite = 'None';
+                            if (cookie.sameSite === 'unspecified') delete cookie.sameSite;
+                            if (cookie.expirationDate) {
+                                cookie.expires = cookie.expirationDate;
+                                delete cookie.expirationDate;
+                            }
+                            // Playwright doesn't accept these
+                            delete cookie.hostOnly;
+                            delete cookie.session;
+                            delete cookie.storeId;
+                            delete cookie.id;
+                            return cookie;
+                        });
+
                         await this.page.context().addCookies(cookies);
                         const target = demoStartUrl || url;
                         await this.page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30000 });
