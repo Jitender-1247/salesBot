@@ -66,14 +66,42 @@ export class Navigator {
 
     async login(url, loginSteps, email, password, sessionCookies, demoStartUrl) {
         try {
-            // ── Cookie-Based Login (Bypass) ──────────────────────────────
-            // If the user has imported their session cookies via the dashboard,
-            // we load them directly into the browser and skip the login form entirely.
+            // Helper: Dismiss any cookie/consent/popup overlay on ANY website (100% site-agnostic)
+            const dismissConsentBanners = async () => {
+                try {
+                    const universalOverlaySelectors = [
+                        'button:has-text("Reject all")',
+                        'button:has-text("Accept all")',
+                        'button:has-text("Reject")',
+                        'button:has-text("Accept")',
+                        'button:has-text("I agree")',
+                        'button:has-text("Agree")',
+                        'button:has-text("Allow")',
+                        'button:has-text("Got it")',
+                        'button:has-text("Dismiss")',
+                        'button[aria-label*="Reject" i]',
+                        'button[aria-label*="Accept" i]',
+                        'button[aria-label*="Close" i]',
+                        'form[action*="consent"] button',
+                    ];
+                    for (const sel of universalOverlaySelectors) {
+                        const btn = this.page.locator(sel).first();
+                        if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
+                            console.log(`🛡️ Universal overlay auto-dismissed via: ${sel}`);
+                            await btn.click({ timeout: 2000 }).catch(() => {});
+                            await this.page.waitForTimeout(800);
+                            break;
+                        }
+                    }
+                } catch (e) { /* ignore */ }
+            };
+
+            // ── 1. Cookie-Based Login (Primary — Universal for all sites) ──
             if (sessionCookies) {
                 try {
                     let cookies = JSON.parse(sessionCookies);
                     if (Array.isArray(cookies) && cookies.length > 0) {
-                        // Normalize cookies from extensions like Cookie Editor for Playwright
+                        // Normalize cookies from any browser extension for Playwright
                         cookies = cookies.map(c => {
                             const cookie = { ...c };
                             if (cookie.sameSite === 'no_restriction') cookie.sameSite = 'None';
@@ -82,7 +110,6 @@ export class Navigator {
                                 cookie.expires = cookie.expirationDate;
                                 delete cookie.expirationDate;
                             }
-                            // Playwright doesn't accept these
                             delete cookie.hostOnly;
                             delete cookie.session;
                             delete cookie.storeId;
@@ -96,134 +123,56 @@ export class Navigator {
                         
                         await dismissConsentBanners();
                         
-                        // Check if the site accepted the cookies or redirected back to a login page
+                        // Universal check: Did the site accept the cookies or redirect back to a login page?
                         const finalUrl = this.page.url().toLowerCase();
                         const isRedirectedToLogin = finalUrl.includes('/signin') || 
                                                     finalUrl.includes('/login') || 
-                                                    finalUrl.includes('accounts.zoho') || 
-                                                    finalUrl.includes('accounts.google');
+                                                    finalUrl.includes('/auth') ||
+                                                    finalUrl.includes('/sso') ||
+                                                    finalUrl.includes('accounts.');
 
                         if (isRedirectedToLogin) {
-                            console.log(`⚠️ Cookies loaded but site redirected to login page (${finalUrl}). Session expired or invalid. Falling back to form login...`);
+                            console.log(`⚠️ Cookies loaded but site redirected to auth page (${finalUrl}). Falling back to universal form login...`);
                         } else {
                             console.log(`✅ Cookie-based login successful — navigated to: ${this.page.url()}`);
-                            return; // Skip automated form login
+                            return; // Skip form login
                         }
                     }
                 } catch (cookieErr) {
-                    console.log('⚠️ Cookie parse/load failed, falling back to form login:', cookieErr.message);
+                    console.log('⚠️ Cookie parse/load failed, falling back to universal form login:', cookieErr.message);
                 }
             }
 
-            // Helper: Dismiss common cookie/consent banners (e.g. YouTube/Google)
-            const dismissConsentBanners = async () => {
-                try {
-                    const consentSelectors = [
-                        'button:has-text("Reject all")',
-                        'button:has-text("Accept all")',
-                        'button:has-text("I agree")',
-                        'button[aria-label*="Reject" i]',
-                        'button[aria-label*="Accept" i]',
-                        'form[action*="consent"] button',
-                        'button:has-text("Before you continue")'
-                    ];
-                    for (const sel of consentSelectors) {
-                        const btn = this.page.locator(sel).first();
-                        if (await btn.isVisible({ timeout: 1500 }).catch(() => false)) {
-                            console.log(`🛡️ Dismissing consent/cookie banner with: ${sel}`);
-                            await btn.click({ timeout: 3000 }).catch(() => {});
-                            await this.page.waitForTimeout(1000);
-                            break;
-                        }
-                    }
-                } catch (e) { /* ignore */ }
-            };
-
-            // ── Automated Form Login (fallback) ──────────────────────────
+            // ── 2. Universal Automated Form Login (Fallback for any website) ──
             await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
             await dismissConsentBanners();
-            console.log(`🔑 Attempting form login on: ${this.page.url()}`);
+            console.log(`🔑 Attempting universal form login on: ${this.page.url()}`);
 
-            // Dedicated Zoho Login Handler (Zoho 2-Step Login)
-            if (this.page.url().includes('zoho')) {
-                console.log('⚡ Using dedicated Zoho CRM login flow...');
-                try {
-                    const loginIdLoc = this.page.locator('#login_id, input[name="login_id"]').first();
-                    if (await loginIdLoc.isVisible({ timeout: 5000 }).catch(() => false)) {
-                        await loginIdLoc.click();
-                        await loginIdLoc.fill('');
-                        await loginIdLoc.pressSequentially(email, { delay: 60 });
-                        await this.page.waitForTimeout(500);
-
-                        const nextBtn = this.page.locator('button#nextbtn, button:has-text("Next")').first();
-                        if (await nextBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-                            await nextBtn.click();
-                        } else {
-                            await this.page.keyboard.press('Enter');
-                        }
-
-                        // Wait for password input to appear
-                        const passLoc = this.page.locator('#password, input[name="password"], input[type="password"]').first();
-                        await passLoc.waitFor({ state: 'visible', timeout: 10000 });
-                        await passLoc.click();
-                        await passLoc.fill('');
-                        await passLoc.pressSequentially(password, { delay: 60 });
-                        await this.page.waitForTimeout(500);
-
-                        const submitBtn = this.page.locator('button#nextbtn, button[type="submit"], button:has-text("Sign in")').first();
-                        if (await submitBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-                            await submitBtn.click();
-                        } else {
-                            await this.page.keyboard.press('Enter');
-                        }
-
-                        await this.page.waitForNavigation({ waitUntil: 'networkidle', timeout: 15000 }).catch(() => {});
-                        console.log(`✅ Dedicated Zoho login completed. Current URL: ${this.page.url()}`);
-                        return;
-                    }
-                } catch (zohoErr) {
-                    console.log('⚠️ Dedicated Zoho login failed, falling back to smart discovery:', zohoErr.message);
-                }
-            }
-
-            // Smart email field discovery — try many common patterns
+            // Universal Smart Discovery Selectors
             const emailSelectors = [
                 loginSteps?.emailSelector,
-                '#login_id',
-                'input[name="login_id"]',
-                'input[type="email"]',
-                'input[name="email"]',
-                '#email',
-                '#user-name',
-                'input[name="username"]',
-                'input[name="user"]',
-                'input[placeholder*="email" i]',
-                'input[placeholder*="username" i]',
+                '#login_id', 'input[name="login_id"]',
+                'input[type="email"]', 'input[name="email"]',
+                '#email', '#user-name', '#username',
+                'input[name="username"]', 'input[name="user"]',
+                'input[placeholder*="email" i]', 'input[placeholder*="username" i]',
                 'input[placeholder*="mobile" i]',
             ].filter(Boolean);
 
-            // Smart password field discovery
             const passwordSelectors = [
                 loginSteps?.passwordSelector,
-                'input[type="password"]',
-                '#password',
-                'input[name="password"]',
-                'input[name="passwd"]',
+                'input[type="password"]', '#password',
+                'input[name="password"]', 'input[name="passwd"]',
                 'input[placeholder*="password" i]',
             ].filter(Boolean);
 
-            // Smart submit button discovery
             const submitSelectors = [
                 loginSteps?.submitSelector,
-                'button#nextbtn',
-                'button[type="submit"]',
-                'input[type="submit"]',
-                '#login-button',
-                'button:has-text("Next")',
-                'button:has-text("Sign in")',
-                'button:has-text("Log in")',
-                'button:has-text("Continue")',
-                '[type="submit"]',
+                'button#nextbtn', 'button[type="submit"]',
+                'input[type="submit"]', '#login-button',
+                'button:has-text("Next")', 'button:has-text("Sign in")',
+                'button:has-text("Log in")', 'button:has-text("Continue")',
+                'button:has-text("Submit")', '[type="submit"]',
             ].filter(Boolean);
 
             // Helper: find first working selector on the page
