@@ -94,13 +94,7 @@ export class Navigator {
                         const target = demoStartUrl || url;
                         await this.page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30000 });
                         
-                        // Try to dismiss popups if they still appear
-                        try {
-                            const rejectBtn = this.page.locator('button:has-text("Reject all"), button:has-text("Accept all")').first();
-                            if (await rejectBtn.isVisible({ timeout: 2000 })) {
-                                await rejectBtn.click();
-                            }
-                        } catch (e) {}
+                        await dismissConsentBanners();
                         
                         // Check if the site accepted the cookies or redirected back to a login page
                         const finalUrl = this.page.url().toLowerCase();
@@ -124,11 +118,23 @@ export class Navigator {
             // Helper: Dismiss common cookie/consent banners (e.g. YouTube/Google)
             const dismissConsentBanners = async () => {
                 try {
-                    const rejectBtn = this.page.locator('button:has-text("Reject all"), button:has-text("Accept all")').first();
-                    if (await rejectBtn.isVisible({ timeout: 2000 })) {
-                        console.log('🛡️ Dismissing consent/cookie banner...');
-                        await rejectBtn.click();
-                        await this.page.waitForTimeout(1000);
+                    const consentSelectors = [
+                        'button:has-text("Reject all")',
+                        'button:has-text("Accept all")',
+                        'button:has-text("I agree")',
+                        'button[aria-label*="Reject" i]',
+                        'button[aria-label*="Accept" i]',
+                        'form[action*="consent"] button',
+                        'button:has-text("Before you continue")'
+                    ];
+                    for (const sel of consentSelectors) {
+                        const btn = this.page.locator(sel).first();
+                        if (await btn.isVisible({ timeout: 1500 }).catch(() => false)) {
+                            console.log(`🛡️ Dismissing consent/cookie banner with: ${sel}`);
+                            await btn.click({ timeout: 3000 }).catch(() => {});
+                            await this.page.waitForTimeout(1000);
+                            break;
+                        }
                     }
                 } catch (e) { /* ignore */ }
             };
