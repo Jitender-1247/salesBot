@@ -14,6 +14,8 @@ import { Track } from 'livekit-client';
  */
 function KeyframeVideoTrack({ speaking, onReady }) {
     const videoRef = useRef(null);
+    const [useFallback, setUseFallback] = useState(false);
+    const readyCalledRef = useRef(false);
 
     // useTracks auto-subscribes and returns live track refs
     const tracks = useTracks(
@@ -30,6 +32,7 @@ function KeyframeVideoTrack({ speaking, onReady }) {
 
     console.log('[Keyframe] tracks found:', tracks.length, '| remote avatar track:', !!avatarTrack);
 
+    // If live track arrives, attach it and call onReady
     useEffect(() => {
         if (!avatarTrack?.publication?.track || !videoRef.current) return;
 
@@ -37,7 +40,8 @@ function KeyframeVideoTrack({ speaking, onReady }) {
         console.log('[Keyframe] ✅ Attaching video track from:', avatarTrack.participant.identity);
         track.attach(videoRef.current);
         
-        if (onReady) {
+        if (onReady && !readyCalledRef.current) {
+            readyCalledRef.current = true;
             onReady();
         }
 
@@ -46,31 +50,75 @@ function KeyframeVideoTrack({ speaking, onReady }) {
         };
     }, [avatarTrack, onReady]);
 
+    // Fallback timer: if live track doesn't arrive within 3.5 seconds, trigger fallback
+    useEffect(() => {
+        if (avatarTrack?.publication?.track) return;
+
+        const timer = setTimeout(() => {
+            console.log('[Keyframe] ⏰ Live avatar track timeout — activating fallback avatar mode');
+            setUseFallback(true);
+            if (onReady && !readyCalledRef.current) {
+                readyCalledRef.current = true;
+                onReady();
+            }
+        }, 3500);
+
+        return () => clearTimeout(timer);
+    }, [avatarTrack, onReady]);
+
     const hasTrack = !!avatarTrack?.publication?.track;
+    const posterUrl = 'https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg?auto=compress&cs=tinysrgb&w=640';
 
     return (
-        <div className="avatar-3d-container">
-            {!hasTrack && (
+        <div className="avatar-3d-container" style={{ position: 'relative', overflow: 'hidden' }}>
+            {/* Loading Spinner (0 - 3.5s) */}
+            {!hasTrack && !useFallback && (
                 <div style={{
                     position: 'absolute', inset: 0,
                     display: 'flex', flexDirection: 'column',
                     alignItems: 'center', justifyContent: 'center', gap: '8px',
-                    zIndex: 5,
+                    zIndex: 5, background: '#111827'
                 }}>
                     <div style={{
-                        width: '64px', height: '64px', borderRadius: '50%',
+                        width: '56px', height: '56px', borderRadius: '50%',
                         background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: '26px', animation: 'pulse 1.5s ease-in-out infinite',
+                        fontSize: '24px', animation: 'pulse 1.5s ease-in-out infinite',
                     }}>
                         ⏳
                     </div>
-                    <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.6)' }}>
+                    <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
                         Avatar joining...
                     </span>
                 </div>
             )}
 
+            {/* Fallback Avatar Image (after 3.5s timeout if no live video track) */}
+            {!hasTrack && useFallback && (
+                <div style={{
+                    position: 'absolute', inset: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: '#111827'
+                }}>
+                    <img
+                        src={posterUrl}
+                        alt="Sofia Avatar"
+                        style={{
+                            width: '100%', height: '100%',
+                            objectFit: 'cover',
+                            filter: speaking ? 'brightness(1.05)' : 'brightness(0.9)',
+                            transition: 'all 0.3s ease'
+                        }}
+                    />
+                    <div style={{
+                        position: 'absolute', inset: 0,
+                        boxShadow: speaking ? 'inset 0 0 20px rgba(99, 102, 241, 0.6)' : 'none',
+                        pointerEvents: 'none'
+                    }} />
+                </div>
+            )}
+
+            {/* Real WebRTC Video Track */}
             <video
                 ref={videoRef}
                 autoPlay
