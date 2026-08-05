@@ -26,7 +26,7 @@ export default function Products() {
         <div className="flex min-h-screen bg-[#0f0f0f]">
             <Sidebar />
 
-            <main className="flex-1 p-8">
+            <main className="flex-1 min-w-0 overflow-x-hidden p-8">
 
                 {/* Header */}
                 <div className="flex items-center justify-between mb-8">
@@ -62,22 +62,22 @@ export default function Products() {
                         {products.map(product => (
                             <div
                                 key={product._id}
-                                className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-6 flex items-center justify-between hover:border-indigo-500 transition-colors"
+                                className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-6 flex items-center justify-between hover:border-indigo-500 transition-colors min-w-0"
                             >
-                                <div className="flex items-center gap-4">
+                                <div className="flex items-center gap-4 min-w-0 flex-1">
                                     <div className="w-12 h-12 bg-indigo-950 rounded-xl flex items-center justify-center text-2xl">
                                         ⚙
                                     </div>
-                                    <div>
+                                    <div className="min-w-0">
                                         <h3 className="text-white font-semibold">{product.name}</h3>
-                                        <p className="text-gray-500 text-sm mt-0.5">{product.url}</p>
+                                        <p className="text-gray-500 text-sm mt-0.5 truncate">{product.url}</p>
                                         <p className="text-gray-600 text-xs mt-1">
                                             Added {new Date(product.createdAt).toLocaleDateString()}
                                         </p>
                                     </div>
                                 </div>
 
-                                <div className="flex items-center gap-4">
+                                <div className="flex items-center gap-3 flex-shrink-0 ml-4">
                                     <span className={`text-xs px-3 py-1.5 rounded-full font-medium ${product.explorationStatus === 'ready'
                                             ? 'bg-green-950 text-green-400'
                                             : product.explorationStatus === 'exploring'

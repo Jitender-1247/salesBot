@@ -104,20 +104,41 @@ export class Navigator {
                 return null;
             };
 
-            // STEP 1: Fill in email using real keystrokes (React forms ignore .fill())
+            // Helper: directly set value on React-controlled inputs bypassing React
+            // Standard .fill() doesn't work because React controls the input's state internally
+            const reactFill = async (selector, value) => {
+                await this.page.evaluate(({ sel, val }) => {
+                    const el = document.querySelector(sel);
+                    if (!el) return;
+                    // Use React's internal setter to properly update state
+                    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+                    if (nativeSetter) nativeSetter.call(el, val);
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                }, { sel: selector, val: value });
+            };
+
+            // STEP 1: Fill in email — try React setter first, then fallback to keystrokes
             const emailSel = await findSelector(emailSelectors);
             if (emailSel) {
                 console.log(`📧 Found email field: ${emailSel}`);
                 const emailLoc = this.page.locator(emailSel).first();
                 await emailLoc.click({ timeout: 3000 });
-                await emailLoc.clear();
-                await emailLoc.pressSequentially(email, { delay: 50 });
+                await reactFill(emailSel.split(',')[0].trim(), email);
+                await emailLoc.pressSequentially('', { delay: 50 }); // trigger any remaining listeners
+                // Verify value was set
+                const val = await emailLoc.inputValue().catch(() => '');
+                if (!val) {
+                    console.log('React fill failed, falling back to pressSequentially...');
+                    await emailLoc.clear();
+                    await emailLoc.pressSequentially(email, { delay: 80 });
+                }
             } else {
                 console.log('⚠️ Could not find email field');
             }
 
             // Small delay to let React update state after typing
-            await this.page.waitForTimeout(500);
+            await this.page.waitForTimeout(800);
 
             // STEP 2: Check if password is visible NOW — if not, click Next first
             let passSel = await findSelector(passwordSelectors);
