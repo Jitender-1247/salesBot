@@ -93,6 +93,15 @@ export class Navigator {
                         await this.page.context().addCookies(cookies);
                         const target = demoStartUrl || url;
                         await this.page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30000 });
+                        
+                        // Try to dismiss popups if they still appear
+                        try {
+                            const rejectBtn = this.page.locator('button:has-text("Reject all"), button:has-text("Accept all")').first();
+                            if (await rejectBtn.isVisible({ timeout: 2000 })) {
+                                await rejectBtn.click();
+                            }
+                        } catch (e) {}
+                        
                         console.log(`✅ Cookie-based login successful — navigated to: ${this.page.url()}`);
                         return; // Skip automated login entirely
                     }
@@ -101,8 +110,21 @@ export class Navigator {
                 }
             }
 
+            // Helper: Dismiss common cookie/consent banners (e.g. YouTube/Google)
+            const dismissConsentBanners = async () => {
+                try {
+                    const rejectBtn = this.page.locator('button:has-text("Reject all"), button:has-text("Accept all")').first();
+                    if (await rejectBtn.isVisible({ timeout: 2000 })) {
+                        console.log('🛡️ Dismissing consent/cookie banner...');
+                        await rejectBtn.click();
+                        await this.page.waitForTimeout(1000);
+                    }
+                } catch (e) { /* ignore */ }
+            };
+
             // ── Automated Form Login (fallback) ──────────────────────────
             await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await dismissConsentBanners();
             console.log(`🔑 Attempting form login on: ${this.page.url()}`);
 
             // Smart email field discovery — try many common patterns
