@@ -66,7 +66,7 @@ export class Navigator {
 
     async login(url, loginSteps, email, password, sessionCookies, demoStartUrl) {
         try {
-            // Helper: Dismiss any cookie/consent/popup overlay on ANY website (100% site-agnostic)
+            // Helper: Dismiss any cookie/consent/popup overlay on ANY website or iframe (100% site-agnostic)
             const dismissConsentBanners = async () => {
                 try {
                     const universalOverlaySelectors = [
@@ -84,17 +84,31 @@ export class Navigator {
                         'button[aria-label*="Close" i]',
                         'form[action*="consent"] button',
                     ];
-                    for (const sel of universalOverlaySelectors) {
-                        const btn = this.page.locator(sel).first();
-                        if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
-                            console.log(`🛡️ Universal overlay auto-dismissed via: ${sel}`);
-                            await btn.click({ timeout: 2000 }).catch(() => {});
-                            await this.page.waitForTimeout(800);
-                            break;
+                    
+                    const frames = this.page.frames();
+                    for (const frame of frames) {
+                        for (const sel of universalOverlaySelectors) {
+                            try {
+                                const btn = frame.locator(sel).first();
+                                if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
+                                    console.log(`🛡️ Universal overlay auto-dismissed via: ${sel} in frame ${frame.url()}`);
+                                    await btn.click({ timeout: 2000 }).catch(() => {});
+                                    await this.page.waitForTimeout(1000);
+                                    return;
+                                }
+                            } catch (e) {}
                         }
                     }
                 } catch (e) { /* ignore */ }
             };
+
+            // Pre-inject universal consent cookies (prevents Google/YouTube consent walls automatically)
+            await this.page.context().addCookies([
+                { name: 'SOCS', value: 'CAESEwgDEgk0ODE3Nzc3NzAaAmVuIAEaBgiA_LyaBg', domain: '.youtube.com', path: '/' },
+                { name: 'SOCS', value: 'CAESEwgDEgk0ODE3Nzc3NzAaAmVuIAEaBgiA_LyaBg', domain: '.google.com', path: '/' },
+                { name: 'CONSENT', value: 'YES+cb.20210328-17-p0.en+FX+417', domain: '.youtube.com', path: '/' },
+                { name: 'CONSENT', value: 'YES+cb.20210328-17-p0.en+FX+417', domain: '.google.com', path: '/' }
+            ]).catch(() => {});
 
             // ── 1. Cookie-Based Login (Primary — Universal for all sites) ──
             if (sessionCookies) {
