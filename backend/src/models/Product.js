@@ -27,6 +27,8 @@ const productSchema = new mongoose.Schema({
     },
     pages: [pageSchema]
   },
+  sessionCookies: { type: String, default: '' }, // JSON array of cookies for bypassing login
+  demoStartUrl: { type: String, default: '' },     // URL to navigate to after login (overrides product.url)
   explorationStatus: {
     type: String,
     enum: ['pending', 'exploring', 'ready', 'failed'],

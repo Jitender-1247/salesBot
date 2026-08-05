@@ -96,13 +96,15 @@ export class CallOrchestrator {
             this.isActive = true;
             this.startTime = Date.now();
 
-            // Launch browser and login
+            // Launch browser and login (uses stored cookies if available to bypass form login)
             await this.navigator.launch();
             await this.navigator.login(
                 this.product.url,
                 this.product.knowledgeMap.loginSteps,
                 decrypt(this.product.credentials.email),
-                decrypt(this.product.credentials.password)
+                decrypt(this.product.credentials.password),
+                this.product.sessionCookies || null,
+                this.product.demoStartUrl || null
             );
 
             console.log(`✅ Call ${this.callId} started`);

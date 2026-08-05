@@ -64,10 +64,29 @@ export class Navigator {
         }
     }
 
-    async login(url, loginSteps, email, password) {
+    async login(url, loginSteps, email, password, sessionCookies, demoStartUrl) {
         try {
+            // ── Cookie-Based Login (Bypass) ──────────────────────────────
+            // If the user has imported their session cookies via the dashboard,
+            // we load them directly into the browser and skip the login form entirely.
+            if (sessionCookies) {
+                try {
+                    const cookies = JSON.parse(sessionCookies);
+                    if (Array.isArray(cookies) && cookies.length > 0) {
+                        await this.page.context().addCookies(cookies);
+                        const target = demoStartUrl || url;
+                        await this.page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30000 });
+                        console.log(`✅ Cookie-based login successful — navigated to: ${this.page.url()}`);
+                        return; // Skip automated login entirely
+                    }
+                } catch (cookieErr) {
+                    console.log('⚠️ Cookie parse/load failed, falling back to form login:', cookieErr.message);
+                }
+            }
+
+            // ── Automated Form Login (fallback) ──────────────────────────
             await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-            console.log(`🔑 Attempting login on: ${this.page.url()}`);
+            console.log(`🔑 Attempting form login on: ${this.page.url()}`);
 
             // Smart email field discovery — try many common patterns
             const emailSelectors = [

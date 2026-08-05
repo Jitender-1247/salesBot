@@ -75,6 +75,24 @@ router.get('/:id/status', protect, async (req, res) => {
   }
 });
 
+// Save session cookies + demo start URL (bypasses login automation)
+router.patch('/:id/session', protect, async (req, res) => {
+  try {
+    const { sessionCookies, demoStartUrl } = req.body;
+    const product = await Product.findOne({ _id: req.params.id, clientId: req.clientId });
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+
+    const update = {};
+    if (sessionCookies !== undefined) update.sessionCookies = sessionCookies;
+    if (demoStartUrl !== undefined) update.demoStartUrl = demoStartUrl;
+
+    await Product.findByIdAndUpdate(req.params.id, update);
+    res.json({ message: 'Session saved successfully' });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+});
+
 // Get full product with knowledge map
 router.get('/:id', protect, async (req, res) => {
   try {

@@ -9,6 +9,10 @@ export default function ProductDetail() {
     const [product, setProduct] = useState(null);
     const [loading, setLoading] = useState(true);
     const [deleting, setDeleting] = useState(false);
+    const [sessionCookies, setSessionCookies] = useState('');
+    const [demoStartUrl, setDemoStartUrl] = useState('');
+    const [savingSession, setSavingSession] = useState(false);
+    const [sessionSaved, setSessionSaved] = useState(false);
 
     useEffect(() => {
         fetchProduct();
@@ -25,10 +29,25 @@ export default function ProductDetail() {
         try {
             const res = await api.get(`/products/${id}`);
             setProduct(res.data);
+            setSessionCookies(res.data.sessionCookies || '');
+            setDemoStartUrl(res.data.demoStartUrl || '');
         } catch (err) {
             console.log('Error fetching product:', err);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const saveSession = async () => {
+        try {
+            setSavingSession(true);
+            await api.patch(`/products/${id}/session`, { sessionCookies, demoStartUrl });
+            setSessionSaved(true);
+            setTimeout(() => setSessionSaved(false), 3000);
+        } catch (err) {
+            console.log('Error saving session:', err);
+        } finally {
+            setSavingSession(false);
         }
     };
 
@@ -215,8 +234,66 @@ export default function ProductDetail() {
                     )}
                 </div>
 
+                {/* Session Import — bypass automated login */}
+                <div className="mt-6 bg-[#1a1a1a] border border-indigo-900/40 rounded-xl p-6">
+                    <div className="flex items-start gap-3 mb-4">
+                        <span className="text-2xl">🍪</span>
+                        <div>
+                            <h2 className="text-white font-semibold">Session Import <span className="text-xs text-indigo-400 font-normal ml-2">Bypass Login</span></h2>
+                            <p className="text-gray-500 text-sm mt-1">
+                                If the AI can't log in automatically (e.g. Zoho, Google), paste your session cookies here.
+                                The AI will use them to start already logged in.
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* How to get cookies */}
+                    <details className="mb-4">
+                        <summary className="text-indigo-400 text-sm cursor-pointer hover:text-indigo-300">How to get your session cookies →</summary>
+                        <div className="mt-3 bg-[#0f0f0f] rounded-lg p-4 text-xs text-gray-400 space-y-2">
+                            <p>1. Log into your product manually in Chrome (e.g. Zoho CRM)</p>
+                            <p>2. Once logged in, press <kbd className="bg-gray-800 px-1 rounded">F12</kbd> to open DevTools</p>
+                            <p>3. Go to the <strong className="text-gray-300">Console</strong> tab and paste this script:</p>
+                            <pre className="bg-[#1a1a1a] p-3 rounded text-xs text-green-400 overflow-x-auto whitespace-pre-wrap break-all">
+{`copy(JSON.stringify([...document.cookie.split(';').map(c=>{const[k,...v]=c.trim().split('=');return{name:k,value:v.join('='),domain:location.hostname,path:'/'};})]))` }
+                            </pre>
+                            <p>4. Press Enter — your cookies are now copied to clipboard. Paste them below.</p>
+                            <p>5. Also paste the current URL (the page you land on after login) in "Demo Start URL".</p>
+                        </div>
+                    </details>
+
+                    <div className="space-y-3">
+                        <div>
+                            <label className="block text-gray-400 text-xs font-medium mb-1.5">Session Cookies (JSON)</label>
+                            <textarea
+                                value={sessionCookies}
+                                onChange={e => setSessionCookies(e.target.value)}
+                                placeholder='[{"name":"ZCTOKEN","value":"...","domain":".zoho.com","path":"/"}]'
+                                className="w-full bg-[#0f0f0f] border border-[#2a2a2a] focus:border-indigo-500 rounded-lg px-3 py-2.5 text-white text-xs font-mono h-24 resize-none outline-none transition-colors"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-gray-400 text-xs font-medium mb-1.5">Demo Start URL <span className="text-gray-600">(URL after login, optional)</span></label>
+                            <input
+                                type="text"
+                                value={demoStartUrl}
+                                onChange={e => setDemoStartUrl(e.target.value)}
+                                placeholder="https://crm.zoho.com/crm/org.../tab/Leads"
+                                className="w-full bg-[#0f0f0f] border border-[#2a2a2a] focus:border-indigo-500 rounded-lg px-3 py-2.5 text-white text-sm outline-none transition-colors"
+                            />
+                        </div>
+                        <button
+                            onClick={saveSession}
+                            disabled={savingSession}
+                            className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-5 py-2 rounded-lg transition-colors text-sm disabled:opacity-50"
+                        >
+                            {savingSession ? 'Saving...' : sessionSaved ? '✅ Saved!' : 'Save Session'}
+                        </button>
+                    </div>
+                </div>
+
                 {/* Danger Zone */}
-                <div className="mt-8 bg-[#1a1a1a] border border-red-900/40 rounded-xl p-6 flex items-center justify-between">
+                <div className="mt-6 bg-[#1a1a1a] border border-red-900/40 rounded-xl p-6 flex items-center justify-between">
                     <div>
                         <h2 className="text-white font-semibold">Remove this bot</h2>
                         <p className="text-gray-500 text-sm mt-1">
