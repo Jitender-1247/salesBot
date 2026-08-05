@@ -127,6 +127,48 @@ export class Navigator {
             await dismissConsentBanners();
             console.log(`🔑 Attempting form login on: ${this.page.url()}`);
 
+            // Dedicated Zoho Login Handler (Zoho 2-Step Login)
+            if (this.page.url().includes('zoho')) {
+                console.log('⚡ Using dedicated Zoho CRM login flow...');
+                try {
+                    const loginIdLoc = this.page.locator('#login_id, input[name="login_id"]').first();
+                    if (await loginIdLoc.isVisible({ timeout: 5000 }).catch(() => false)) {
+                        await loginIdLoc.click();
+                        await loginIdLoc.fill('');
+                        await loginIdLoc.pressSequentially(email, { delay: 60 });
+                        await this.page.waitForTimeout(500);
+
+                        const nextBtn = this.page.locator('button#nextbtn, button:has-text("Next")').first();
+                        if (await nextBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+                            await nextBtn.click();
+                        } else {
+                            await this.page.keyboard.press('Enter');
+                        }
+
+                        // Wait for password input to appear
+                        const passLoc = this.page.locator('#password, input[name="password"], input[type="password"]').first();
+                        await passLoc.waitFor({ state: 'visible', timeout: 10000 });
+                        await passLoc.click();
+                        await passLoc.fill('');
+                        await passLoc.pressSequentially(password, { delay: 60 });
+                        await this.page.waitForTimeout(500);
+
+                        const submitBtn = this.page.locator('button#nextbtn, button[type="submit"], button:has-text("Sign in")').first();
+                        if (await submitBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+                            await submitBtn.click();
+                        } else {
+                            await this.page.keyboard.press('Enter');
+                        }
+
+                        await this.page.waitForNavigation({ waitUntil: 'networkidle', timeout: 15000 }).catch(() => {});
+                        console.log(`✅ Dedicated Zoho login completed. Current URL: ${this.page.url()}`);
+                        return;
+                    }
+                } catch (zohoErr) {
+                    console.log('⚠️ Dedicated Zoho login failed, falling back to smart discovery:', zohoErr.message);
+                }
+            }
+
             // Smart email field discovery — try many common patterns
             const emailSelectors = [
                 loginSteps?.emailSelector,
