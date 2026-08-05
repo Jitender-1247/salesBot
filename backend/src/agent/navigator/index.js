@@ -102,8 +102,19 @@ export class Navigator {
                             }
                         } catch (e) {}
                         
-                        console.log(`✅ Cookie-based login successful — navigated to: ${this.page.url()}`);
-                        return; // Skip automated login entirely
+                        // Check if the site accepted the cookies or redirected back to a login page
+                        const finalUrl = this.page.url().toLowerCase();
+                        const isRedirectedToLogin = finalUrl.includes('/signin') || 
+                                                    finalUrl.includes('/login') || 
+                                                    finalUrl.includes('accounts.zoho') || 
+                                                    finalUrl.includes('accounts.google');
+
+                        if (isRedirectedToLogin) {
+                            console.log(`⚠️ Cookies loaded but site redirected to login page (${finalUrl}). Session expired or invalid. Falling back to form login...`);
+                        } else {
+                            console.log(`✅ Cookie-based login successful — navigated to: ${this.page.url()}`);
+                            return; // Skip automated form login
+                        }
                     }
                 } catch (cookieErr) {
                     console.log('⚠️ Cookie parse/load failed, falling back to form login:', cookieErr.message);
