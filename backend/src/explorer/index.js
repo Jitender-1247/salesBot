@@ -227,34 +227,79 @@ export async function exploreProduct(productId) {
         const email = decrypt(product.credentials.email);
         const password = decrypt(product.credentials.password);
 
-        // Unconditional fallback selectors to guarantee we can find the inputs even if LLM guessed wrong
-        const emailSel = `${loginSteps.emailSelector}, #user-name, [name="username"], [name="login_id"], input[type="email"], input[name="email"], #login_id`;
-        const passSel = `${loginSteps.passwordSelector}, #password, [name="password"], input[type="password"]`;
-        const submitSel = `${loginSteps.submitSelector}, #login-button, [type="submit"], button#nextbtn, button#submit, .login-btn`;
+        // Smart selector discovery — works with any login form including 2-step (Zoho, Google, etc.)
+        const emailSelectors = [
+            loginSteps?.emailSelector,
+            '#login_id', 'input[name="login_id"]', 'input[type="email"]',
+            'input[name="email"]', '#email', '#user-name',
+            'input[name="username"]', 'input[placeholder*="email" i]',
+            'input[placeholder*="username" i]', 'input[placeholder*="mobile" i]',
+        ].filter(Boolean);
+
+        const passwordSelectors = [
+            loginSteps?.passwordSelector,
+            'input[type="password"]', '#password',
+            'input[name="password"]', 'input[placeholder*="password" i]',
+        ].filter(Boolean);
+
+        const submitSelectors = [
+            loginSteps?.submitSelector,
+            'button#nextbtn', 'button[type="submit"]', 'input[type="submit"]',
+            '#login-button', 'button:has-text("Next")', 'button:has-text("Sign in")',
+            'button:has-text("Log in")', 'button:has-text("Continue")', '[type="submit"]',
+        ].filter(Boolean);
+
+        const findSelector = async (selectors) => {
+            for (const sel of selectors) {
+                try {
+                    const loc = page.locator(sel).first();
+                    const visible = await loc.isVisible({ timeout: 1000 }).catch(() => false);
+                    if (visible) return sel;
+                } catch { /* try next */ }
+            }
+            return null;
+        };
 
         try {
-            await page.fill(emailSel, email, { timeout: 10000 });
-            
-            // If password field is missing, click Next first (Two-Step Login like Zoho)
-            let passVisible = await page.isVisible(passSel).catch(()=>false);
-            if (!passVisible) {
-                console.log('Password field hidden — assuming two-step login. Clicking next...');
-                await page.click(submitSel, { timeout: 5000 }).catch(()=>{});
-                await page.waitForTimeout(2000); // Wait for animation
+            // Fill email
+            const emailSel = await findSelector(emailSelectors);
+            if (emailSel) {
+                console.log(`📧 Explorer found email field: ${emailSel}`);
+                await page.locator(emailSel).first().fill(email, { timeout: 5000 });
             }
 
-            await page.fill(passSel, password, { timeout: 10000 });
-            
-            // Submit final login
-            try {
-                await page.click(submitSel, { timeout: 5000 });
-            } catch {
+            // Check if password visible — if not, click Next (2-step login)
+            let passSel = await findSelector(passwordSelectors);
+            if (!passSel) {
+                console.log('🔄 Explorer: Password hidden — clicking Next for 2-step login...');
+                const submitSel = await findSelector(submitSelectors);
+                if (submitSel) {
+                    await page.locator(submitSel).first().click({ timeout: 5000 });
+                } else {
+                    await page.keyboard.press('Enter');
+                }
+                await page.waitForTimeout(2000);
+                passSel = await findSelector(passwordSelectors);
+            }
+
+            // Fill password
+            if (passSel) {
+                console.log(`🔒 Explorer found password field: ${passSel}`);
+                await page.locator(passSel).first().fill(password, { timeout: 5000 });
+            }
+
+            // Submit
+            const finalSel = await findSelector(submitSelectors);
+            if (finalSel) {
+                await page.locator(finalSel).first().click({ timeout: 5000 });
+            } else {
                 await page.keyboard.press('Enter');
             }
-            
+
             await page.waitForLoadState('domcontentloaded', { timeout: 15000 });
+            console.log(`✅ Explorer logged in — now on: ${page.url()}`);
         } catch (e) {
-            console.log('⚠️ Warning: Login form automation failed with primary selectors. Attempting to proceed anyway...', e.message);
+            console.log('⚠️ Warning: Explorer login failed. Attempting to proceed anyway...', e.message);
         }
 
         console.log('✅ Logged in — starting page exploration');

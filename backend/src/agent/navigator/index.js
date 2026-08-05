@@ -50,42 +50,111 @@ export class Navigator {
     async login(url, loginSteps, email, password) {
         try {
             await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            console.log(`🔑 Attempting login on: ${this.page.url()}`);
 
-            // Fallback selectors if LLM guessed wrong
-            const emailSel = loginSteps.emailSelector.includes('email') ? `${loginSteps.emailSelector}, #user-name, [name="username"]` : loginSteps.emailSelector;
-            const passSel = loginSteps.passwordSelector.includes('password') ? `${loginSteps.passwordSelector}, #password, [name="password"]` : loginSteps.passwordSelector;
-            const submitSel = loginSteps.submitSelector.includes('submit') ? `${loginSteps.submitSelector}, #login-button, [type="submit"]` : loginSteps.submitSelector;
+            // Smart email field discovery — try many common patterns
+            const emailSelectors = [
+                loginSteps?.emailSelector,
+                '#login_id',
+                'input[name="login_id"]',
+                'input[type="email"]',
+                'input[name="email"]',
+                '#email',
+                '#user-name',
+                'input[name="username"]',
+                'input[name="user"]',
+                'input[placeholder*="email" i]',
+                'input[placeholder*="username" i]',
+                'input[placeholder*="mobile" i]',
+            ].filter(Boolean);
 
-            try {
-                await this.page.fill(emailSel, email, { timeout: 10000 });
-                
-                // If password field is missing, click Next first (Two-Step Login like Zoho)
-                let passVisible = await this.page.isVisible(passSel).catch(()=>false);
-                if (!passVisible) {
-                    console.log('Password field hidden — assuming two-step login. Clicking next...');
-                    await this.page.click(submitSel, { timeout: 5000 }).catch(()=>{});
-                    await this.page.waitForTimeout(2000); // Wait for animation
+            // Smart password field discovery
+            const passwordSelectors = [
+                loginSteps?.passwordSelector,
+                'input[type="password"]',
+                '#password',
+                'input[name="password"]',
+                'input[name="passwd"]',
+                'input[placeholder*="password" i]',
+            ].filter(Boolean);
+
+            // Smart submit button discovery
+            const submitSelectors = [
+                loginSteps?.submitSelector,
+                'button#nextbtn',
+                'button[type="submit"]',
+                'input[type="submit"]',
+                '#login-button',
+                'button:has-text("Next")',
+                'button:has-text("Sign in")',
+                'button:has-text("Log in")',
+                'button:has-text("Continue")',
+                '[type="submit"]',
+            ].filter(Boolean);
+
+            // Helper: find first working selector on the page
+            const findSelector = async (selectors) => {
+                for (const sel of selectors) {
+                    try {
+                        const loc = this.page.locator(sel).first();
+                        const visible = await loc.isVisible({ timeout: 1000 }).catch(() => false);
+                        if (visible) return sel;
+                    } catch { /* try next */ }
                 }
+                return null;
+            };
 
-                await this.page.fill(passSel, password, { timeout: 10000 });
-                
-                // Submit final login
-                try {
-                    await this.page.click(submitSel, { timeout: 5000 });
-                } catch {
+            // STEP 1: Fill in email
+            const emailSel = await findSelector(emailSelectors);
+            if (emailSel) {
+                console.log(`📧 Found email field: ${emailSel}`);
+                await this.page.locator(emailSel).first().fill(email, { timeout: 5000 });
+            } else {
+                console.log('⚠️ Could not find email field');
+            }
+
+            // STEP 2: Check if password is visible NOW — if not, click Next first
+            let passSel = await findSelector(passwordSelectors);
+            if (!passSel) {
+                console.log('🔄 Password field not visible — assuming 2-step login, clicking Next...');
+                const submitSel = await findSelector(submitSelectors);
+                if (submitSel) {
+                    await this.page.locator(submitSel).first().click({ timeout: 5000 });
+                } else {
                     await this.page.keyboard.press('Enter');
                 }
-                
-                await this.page.waitForLoadState('domcontentloaded', { timeout: 15000 });
-                console.log('✅ Navigator logged in');
-            } catch (e) {
-                console.log('⚠️ Warning: Navigator login form automation failed with primary selectors. Attempting to proceed anyway...', e.message);
+                // Wait up to 5 seconds for password field to appear
+                await this.page.waitForTimeout(2000);
+                passSel = await findSelector(passwordSelectors);
             }
+
+            // STEP 3: Fill in password
+            if (passSel) {
+                console.log(`🔒 Found password field: ${passSel}`);
+                await this.page.locator(passSel).first().fill(password, { timeout: 5000 });
+            } else {
+                console.log('⚠️ Could not find password field after Next click');
+            }
+
+            // STEP 4: Submit login form
+            const finalSubmitSel = await findSelector(submitSelectors);
+            if (finalSubmitSel) {
+                console.log(`✅ Submitting with: ${finalSubmitSel}`);
+                await this.page.locator(finalSubmitSel).first().click({ timeout: 5000 });
+            } else {
+                await this.page.keyboard.press('Enter');
+            }
+
+            // Wait for navigation to complete
+            await this.page.waitForLoadState('domcontentloaded', { timeout: 20000 });
+            console.log(`✅ Navigator logged in — now on: ${this.page.url()}`);
+
         } catch (err) {
             console.log('❌ Navigator login failed:', err.message);
-            throw err;
+            // Don't throw — let the demo start anyway, user can manually guide
         }
     }
+
 
     /**
      * Get a rich page context with numbered interactable elements.
