@@ -11,16 +11,18 @@ const router = express.Router();
 // Submit a new product
 router.post('/', protect, async (req, res) => {
   try {
-    const { name, url, email, password, extraKnowledge } = req.body;
+    const { name, url, email, password, extraKnowledge, sessionCookies, demoStartUrl } = req.body;
 
     const product = await Product.create({
       clientId: req.clientId,
       name,
       url,
       credentials: {
-        email: encrypt(email),
-        password: encrypt(password)
+        email: email ? encrypt(email) : '',
+        password: password ? encrypt(password) : ''
       },
+      sessionCookies: sessionCookies || '',
+      demoStartUrl: demoStartUrl || '',
       extraKnowledge: extraKnowledge || '',
       explorationStatus: 'pending'
     });

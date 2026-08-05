@@ -8,6 +8,8 @@ export default function NewProduct() {
     const [form, setForm] = useState({
         name: '',
         url: '',
+        sessionCookies: '',
+        demoStartUrl: '',
         email: '',
         password: '',
         extraKnowledge: ''
@@ -33,7 +35,7 @@ export default function NewProduct() {
         <div className="flex min-h-screen bg-[#0f0f0f]">
             <Sidebar />
 
-            <main className="flex-1 p-8">
+            <main className="flex-1 min-w-0 overflow-x-hidden p-8">
 
                 {/* Header */}
                 <div className="mb-8">
@@ -46,13 +48,12 @@ export default function NewProduct() {
                 <div className="max-w-2xl">
 
                     {/* Info Banner */}
-                    <div className="bg-indigo-950 border border-indigo-800 rounded-xl p-4 mb-6 flex gap-3">
-                        <span className="text-indigo-400 text-lg">ℹ</span>
+                    <div className="bg-indigo-950/60 border border-indigo-800/80 rounded-xl p-4 mb-6 flex gap-3">
+                        <span className="text-indigo-400 text-lg">💡</span>
                         <div>
-                            <p className="text-indigo-300 text-sm font-medium">How it works</p>
+                            <p className="text-indigo-300 text-sm font-medium">Session Cookies are Primary</p>
                             <p className="text-indigo-400 text-sm mt-1">
-                                After submitting, our AI agent will automatically log into your product,
-                                explore every page, and build a complete knowledge map. This usually takes 2-5 minutes.
+                                For products requiring login (Zoho, Salesforce, custom apps), import your session cookies below to skip login, CAPTCHAs, and 2FA instantly.
                             </p>
                         </div>
                     </div>
@@ -65,9 +66,9 @@ export default function NewProduct() {
 
                     <form onSubmit={handleSubmit} className="space-y-6">
 
-                        {/* Product Name */}
+                        {/* Product Info */}
                         <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-6">
-                            <h3 className="text-white font-semibold mb-4">Product Info</h3>
+                            <h3 className="text-white font-semibold mb-4">1. Product Info</h3>
                             <div className="space-y-4">
                                 <div>
                                     <label className="block text-sm font-medium text-gray-400 mb-2">
@@ -76,7 +77,7 @@ export default function NewProduct() {
                                     <input
                                         type="text"
                                         className="w-full bg-[#0f0f0f] border border-[#2a2a2a] rounded-lg px-4 py-3 text-white text-sm outline-none focus:border-indigo-500 transition-colors"
-                                        placeholder="My SaaS Product"
+                                        placeholder="e.g. Zoho CRM, Salesforce"
                                         value={form.name}
                                         onChange={e => setForm({ ...form, name: e.target.value })}
                                         required
@@ -84,12 +85,12 @@ export default function NewProduct() {
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-gray-400 mb-2">
-                                        Product URL
+                                        Base Product / Login URL
                                     </label>
                                     <input
                                         type="url"
                                         className="w-full bg-[#0f0f0f] border border-[#2a2a2a] rounded-lg px-4 py-3 text-white text-sm outline-none focus:border-indigo-500 transition-colors"
-                                        placeholder="https://app.yourproduct.com"
+                                        placeholder="https://crm.zoho.in"
                                         value={form.url}
                                         onChange={e => setForm({ ...form, url: e.target.value })}
                                         required
@@ -98,12 +99,53 @@ export default function NewProduct() {
                             </div>
                         </div>
 
-                        {/* Credentials */}
-                        <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-6">
-                            <h3 className="text-white font-semibold mb-1">Demo Account Credentials</h3>
+                        {/* Primary Method: Session Cookies */}
+                        <div className="bg-[#1a1a1a] border border-indigo-900/50 rounded-xl p-6">
+                            <div className="flex items-center justify-between mb-2">
+                                <h3 className="text-white font-semibold flex items-center gap-2">
+                                    <span>🍪</span> 2. Session Cookies <span className="text-xs bg-indigo-950 text-indigo-400 border border-indigo-800 px-2 py-0.5 rounded-full">Primary & Recommended</span>
+                                </h3>
+                            </div>
                             <p className="text-gray-500 text-xs mb-4">
-                                Create a demo account in your product and enter its credentials here.
-                                These are encrypted with AES-256.
+                                Log into your product in Chrome, open DevTools (F12) or use the Cookie Editor extension, and paste the JSON cookies below to bypass login completely.
+                            </p>
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-400 mb-1.5">
+                                        Session Cookies (JSON)
+                                    </label>
+                                    <textarea
+                                        className="w-full bg-[#0f0f0f] border border-[#2a2a2a] rounded-lg px-4 py-3 text-white text-xs font-mono h-24 resize-none outline-none focus:border-indigo-500 transition-colors"
+                                        placeholder='[{"name":"JSESSIONID","value":"...","domain":".zoho.in","path":"/"}]'
+                                        value={form.sessionCookies}
+                                        onChange={e => setForm({ ...form, sessionCookies: e.target.value })}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-400 mb-1.5">
+                                        Demo Start URL <span className="text-gray-600">(Dashboard/App page after login)</span>
+                                    </label>
+                                    <input
+                                        type="url"
+                                        className="w-full bg-[#0f0f0f] border border-[#2a2a2a] rounded-lg px-4 py-3 text-white text-sm outline-none focus:border-indigo-500 transition-colors"
+                                        placeholder="https://crm.zoho.in/crm/org.../tab/Leads"
+                                        value={form.demoStartUrl}
+                                        onChange={e => setForm({ ...form, demoStartUrl: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Secondary Method: Credentials Fallback */}
+                        <details className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-6 group">
+                            <summary className="text-white font-semibold cursor-pointer flex items-center justify-between list-none">
+                                <span className="flex items-center gap-2">
+                                    <span>🔐</span> 3. Login Credentials <span className="text-xs text-gray-500 font-normal">(Optional Fallback)</span>
+                                </span>
+                                <span className="text-xs text-indigo-400 group-open:rotate-180 transition-transform">▼</span>
+                            </summary>
+                            <p className="text-gray-500 text-xs mt-2 mb-4">
+                                Used automatically as a fallback if your session cookies expire or are not provided.
                             </p>
                             <div className="space-y-4">
                                 <div>
@@ -116,7 +158,6 @@ export default function NewProduct() {
                                         placeholder="demo@yourproduct.com"
                                         value={form.email}
                                         onChange={e => setForm({ ...form, email: e.target.value })}
-                                        required
                                     />
                                 </div>
                                 <div>
@@ -129,11 +170,10 @@ export default function NewProduct() {
                                         placeholder="••••••••"
                                         value={form.password}
                                         onChange={e => setForm({ ...form, password: e.target.value })}
-                                        required
                                     />
                                 </div>
                             </div>
-                        </div>
+                        </details>
 
                         {/* Extra Knowledge */}
                         <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-6">

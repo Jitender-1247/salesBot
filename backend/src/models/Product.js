@@ -14,8 +14,8 @@ const productSchema = new mongoose.Schema({
   name: { type: String, required: true },
   url: { type: String, required: true },
   credentials: {
-    email: { type: String, required: true },
-    password: { type: String, required: true }
+    email: { type: String, default: '' },
+    password: { type: String, default: '' }
   },
   extraKnowledge: { type: String, default: '' },
   knowledgeMap: {
