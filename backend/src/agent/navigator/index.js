@@ -104,14 +104,20 @@ export class Navigator {
                 return null;
             };
 
-            // STEP 1: Fill in email
+            // STEP 1: Fill in email using real keystrokes (React forms ignore .fill())
             const emailSel = await findSelector(emailSelectors);
             if (emailSel) {
                 console.log(`📧 Found email field: ${emailSel}`);
-                await this.page.locator(emailSel).first().fill(email, { timeout: 5000 });
+                const emailLoc = this.page.locator(emailSel).first();
+                await emailLoc.click({ timeout: 3000 });
+                await emailLoc.clear();
+                await emailLoc.pressSequentially(email, { delay: 50 });
             } else {
                 console.log('⚠️ Could not find email field');
             }
+
+            // Small delay to let React update state after typing
+            await this.page.waitForTimeout(500);
 
             // STEP 2: Check if password is visible NOW — if not, click Next first
             let passSel = await findSelector(passwordSelectors);
@@ -124,17 +130,22 @@ export class Navigator {
                     await this.page.keyboard.press('Enter');
                 }
                 // Wait up to 5 seconds for password field to appear
-                await this.page.waitForTimeout(2000);
+                await this.page.waitForTimeout(3000);
                 passSel = await findSelector(passwordSelectors);
             }
 
-            // STEP 3: Fill in password
+            // STEP 3: Fill in password using real keystrokes
             if (passSel) {
                 console.log(`🔒 Found password field: ${passSel}`);
-                await this.page.locator(passSel).first().fill(password, { timeout: 5000 });
+                const passLoc = this.page.locator(passSel).first();
+                await passLoc.click({ timeout: 3000 });
+                await passLoc.clear();
+                await passLoc.pressSequentially(password, { delay: 50 });
             } else {
                 console.log('⚠️ Could not find password field after Next click');
             }
+
+            await this.page.waitForTimeout(500);
 
             // STEP 4: Submit login form
             const finalSubmitSel = await findSelector(submitSelectors);

@@ -261,12 +261,17 @@ export async function exploreProduct(productId) {
         };
 
         try {
-            // Fill email
+            // Fill email using real keystrokes (React forms ignore .fill())
             const emailSel = await findSelector(emailSelectors);
             if (emailSel) {
                 console.log(`📧 Explorer found email field: ${emailSel}`);
-                await page.locator(emailSel).first().fill(email, { timeout: 5000 });
+                const emailLoc = page.locator(emailSel).first();
+                await emailLoc.click({ timeout: 3000 });
+                await emailLoc.clear();
+                await emailLoc.pressSequentially(email, { delay: 50 });
             }
+
+            await page.waitForTimeout(500);
 
             // Check if password visible — if not, click Next (2-step login)
             let passSel = await findSelector(passwordSelectors);
@@ -278,15 +283,20 @@ export async function exploreProduct(productId) {
                 } else {
                     await page.keyboard.press('Enter');
                 }
-                await page.waitForTimeout(2000);
+                await page.waitForTimeout(3000);
                 passSel = await findSelector(passwordSelectors);
             }
 
-            // Fill password
+            // Fill password using real keystrokes
             if (passSel) {
                 console.log(`🔒 Explorer found password field: ${passSel}`);
-                await page.locator(passSel).first().fill(password, { timeout: 5000 });
+                const passLoc = page.locator(passSel).first();
+                await passLoc.click({ timeout: 3000 });
+                await passLoc.clear();
+                await passLoc.pressSequentially(password, { delay: 50 });
             }
+
+            await page.waitForTimeout(500);
 
             // Submit
             const finalSel = await findSelector(submitSelectors);
