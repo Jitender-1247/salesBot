@@ -58,8 +58,24 @@ export class Navigator {
 
             try {
                 await this.page.fill(emailSel, email, { timeout: 10000 });
+                
+                // If password field is missing, click Next first (Two-Step Login like Zoho)
+                let passVisible = await this.page.isVisible(passSel).catch(()=>false);
+                if (!passVisible) {
+                    console.log('Password field hidden — assuming two-step login. Clicking next...');
+                    await this.page.click(submitSel, { timeout: 5000 }).catch(()=>{});
+                    await this.page.waitForTimeout(2000); // Wait for animation
+                }
+
                 await this.page.fill(passSel, password, { timeout: 10000 });
-                await this.page.click(submitSel, { timeout: 10000 });
+                
+                // Submit final login
+                try {
+                    await this.page.click(submitSel, { timeout: 5000 });
+                } catch {
+                    await this.page.keyboard.press('Enter');
+                }
+                
                 await this.page.waitForLoadState('domcontentloaded', { timeout: 15000 });
                 console.log('✅ Navigator logged in');
             } catch (e) {
