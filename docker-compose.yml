@@ -10,7 +10,7 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      - STT_API_URL=http://stt-server:8787
+      - STT_BASE_URL=http://stt-server:8787
       - PORT=5000
     depends_on:
       - stt-server
