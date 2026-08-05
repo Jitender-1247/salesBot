@@ -187,8 +187,25 @@ export async function exploreProduct(productId) {
 
     await Product.findByIdAndUpdate(productId, { explorationStatus: 'exploring' });
 
-    const browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage();
+    const browser = await chromium.launch({
+        headless: true,
+        args: [
+            '--disable-blink-features=AutomationControlled',
+            '--no-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-setuid-sandbox',
+            '--disable-infobars',
+        ]
+    });
+    const browserContext = await browser.newContext({
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        viewport: { width: 1280, height: 720 },
+        locale: 'en-US',
+    });
+    await browserContext.addInitScript(() => {
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    });
+    const page = await browserContext.newPage();
     const knowledgeMap = { pages: [], loginSteps: {}, productSummary: '' };
     const visitedUrls = new Set();
 

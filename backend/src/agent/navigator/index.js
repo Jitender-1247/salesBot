@@ -12,10 +12,27 @@ export class Navigator {
     }
 
     async launch() {
-        this.browser = await chromium.launch({ headless: true });
-        this.page = await this.browser.newPage();
-        await this.page.setViewportSize({ width: 1280, height: 720 });
-        console.log('🌐 Browser launched');
+        this.browser = await chromium.launch({
+            headless: true,
+            args: [
+                '--disable-blink-features=AutomationControlled',
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-setuid-sandbox',
+                '--disable-infobars',
+            ]
+        });
+        const context = await this.browser.newContext({
+            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            viewport: { width: 1280, height: 720 },
+            locale: 'en-US',
+        });
+        // Remove the 'webdriver' property so bot-detection scripts won't find it
+        await context.addInitScript(() => {
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        });
+        this.page = await context.newPage();
+        console.log('🌐 Browser launched (stealth mode)');
     }
 
     async connectToRoom(livekitUrl, token) {
