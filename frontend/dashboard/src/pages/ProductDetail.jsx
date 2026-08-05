@@ -51,9 +51,9 @@ export default function ProductDetail() {
 
     if (loading) {
         return (
-            <div className="flex min-h-screen bg-[#0f0f0f]">
+            <div className="flex min-h-screen bg-[#0f0f0f] overflow-hidden">
                 <Sidebar />
-                <main className="flex-1 p-8">
+                <main className="flex-1 min-w-0 overflow-x-hidden p-8">
                     <p className="text-gray-500">Loading...</p>
                 </main>
             </div>
@@ -62,9 +62,9 @@ export default function ProductDetail() {
 
     if (!product) {
         return (
-            <div className="flex min-h-screen bg-[#0f0f0f]">
+            <div className="flex min-h-screen bg-[#0f0f0f] overflow-hidden">
                 <Sidebar />
-                <main className="flex-1 p-8">
+                <main className="flex-1 min-w-0 overflow-x-hidden p-8">
                     <p className="text-gray-500">Product not found</p>
                 </main>
             </div>
@@ -72,27 +72,27 @@ export default function ProductDetail() {
     }
 
     return (
-        <div className="flex min-h-screen bg-[#0f0f0f]">
+        <div className="flex min-h-screen bg-[#0f0f0f] overflow-hidden">
             <Sidebar />
 
-            <main className="flex-1 p-8">
+            <main className="flex-1 min-w-0 overflow-x-hidden p-8">
 
                 {/* Header */}
-                <div className="flex items-center justify-between mb-8">
-                    <div>
+                <div className="flex items-start justify-between gap-4 mb-8">
+                    <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-3 mb-1">
-                            <Link to="/products" className="text-gray-500 hover:text-white text-sm">
+                            <Link to="/products" className="text-gray-500 hover:text-white text-sm whitespace-nowrap">
                                 Products
                             </Link>
                             <span className="text-gray-600">→</span>
-                            <span className="text-white text-sm">{product.name}</span>
+                            <span className="text-white text-sm truncate">{product.name}</span>
                         </div>
-                        <h1 className="text-2xl font-bold text-white">{product.name}</h1>
-                        <p className="text-gray-500 text-sm mt-1">{product.url}</p>
+                        <h1 className="text-2xl font-bold text-white truncate">{product.name}</h1>
+                        <p className="text-gray-500 text-sm mt-1 truncate">{product.url}</p>
                     </div>
                     <Link
                         to={`/embed/${id}`}
-                        className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-5 py-2.5 rounded-lg transition-colors text-sm"
+                        className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-5 py-2.5 rounded-lg transition-colors text-sm whitespace-nowrap flex-shrink-0"
                     >
                         Get Embed Code
                     </Link>
@@ -124,13 +124,13 @@ export default function ProductDetail() {
                     </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-6">
+                <div className="grid grid-cols-2 gap-6 min-w-0">
 
                     {/* Product Summary */}
-                    <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-6">
+                    <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-6 min-w-0 overflow-hidden">
                         <h2 className="text-white font-semibold mb-4">Product Summary</h2>
                         {product.knowledgeMap?.productSummary ? (
-                            <p className="text-gray-400 text-sm leading-relaxed">
+                            <p className="text-gray-400 text-sm leading-relaxed break-words">
                                 {product.knowledgeMap.productSummary}
                             </p>
                         ) : (
