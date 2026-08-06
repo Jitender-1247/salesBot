@@ -50,7 +50,7 @@ function KeyframeVideoTrack({ speaking, onReady }) {
         };
     }, [avatarTrack, onReady]);
 
-    // Fallback timer: if live track doesn't arrive within 3.5 seconds, trigger fallback
+    // Fallback timer: if live track doesn't arrive within 8.0 seconds, trigger fallback
     useEffect(() => {
         if (avatarTrack?.publication?.track) return;
 
@@ -61,7 +61,7 @@ function KeyframeVideoTrack({ speaking, onReady }) {
                 readyCalledRef.current = true;
                 onReady();
             }
-        }, 3500);
+        }, 8000);
 
         return () => clearTimeout(timer);
     }, [avatarTrack, onReady]);

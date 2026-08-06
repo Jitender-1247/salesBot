@@ -1,21 +1,21 @@
 import dotenv from 'dotenv';
-import FormData from 'form-data';
 dotenv.config();
 
-const GROQ_API_KEY     = process.env.GROQ_API_KEY;
-const GROQ_WHISPER_MODEL = 'whisper-large-v3-turbo'; // Groq's fastest & most accurate Whisper
+const GROQ_API_KEY       = process.env.GROQ_API_KEY;
+const GROQ_WHISPER_MODEL = 'whisper-large-v3-turbo';
 
-const OPENAI_API_KEY   = process.env.OPENAI_API_KEY;
+const OPENAI_API_KEY     = process.env.OPENAI_API_KEY;
 
-const STT_BASE_URL     = process.env.STT_BASE_URL || 'http://localhost:8787';
-const STT_MODEL        = process.env.STT_MODEL || 'base';
-const STT_LANGUAGE     = process.env.STT_LANGUAGE || 'en';
+const STT_BASE_URL       = process.env.STT_BASE_URL || 'http://localhost:8787';
+const STT_MODEL          = process.env.STT_MODEL || 'base';
+const STT_LANGUAGE       = process.env.STT_LANGUAGE || 'en';
 
 /**
- * Transcribe an audio blob using Groq Whisper API (primary, free & fast)
- * or local Faster-Whisper server (fallback).
+ * Transcribe an audio buffer using Groq Whisper API (primary, free & fast),
+ * OpenAI Whisper API (secondary), or local Faster-Whisper server (fallback).
  *
- * Priority: Groq Whisper > OpenAI Whisper > Local Faster-Whisper
+ * Uses native Web API Blob & FormData supported in Node 18+
+ * to avoid multipart EOF errors with legacy form-data libraries.
  *
  * @param {Buffer} audioBuffer - WAV/WebM audio data
  * @param {string} [language] - Language hint (default: 'en')
@@ -28,10 +28,8 @@ export async function transcribeAudio(audioBuffer, language) {
         if (GROQ_API_KEY) {
             // ── Groq Whisper (Primary — Free, fast, high-accuracy) ──
             const formData = new FormData();
-            formData.append('file', Buffer.from(audioBuffer), {
-                filename: 'recording.webm',
-                contentType: 'audio/webm',
-            });
+            const audioBlob = new Blob([audioBuffer], { type: 'audio/webm' });
+            formData.append('file', audioBlob, 'recording.webm');
             formData.append('model', GROQ_WHISPER_MODEL);
             formData.append('language', lang);
             formData.append('response_format', 'json');
@@ -40,7 +38,6 @@ export async function transcribeAudio(audioBuffer, language) {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${GROQ_API_KEY}`,
-                    ...formData.getHeaders(),
                 },
                 body: formData,
             });
@@ -61,10 +58,8 @@ export async function transcribeAudio(audioBuffer, language) {
         } else if (OPENAI_API_KEY) {
             // ── OpenAI Whisper (Secondary) ──
             const formData = new FormData();
-            formData.append('file', Buffer.from(audioBuffer), {
-                filename: 'recording.webm',
-                contentType: 'audio/webm',
-            });
+            const audioBlob = new Blob([audioBuffer], { type: 'audio/webm' });
+            formData.append('file', audioBlob, 'recording.webm');
             formData.append('model', 'whisper-1');
             formData.append('language', lang);
 
@@ -72,7 +67,6 @@ export async function transcribeAudio(audioBuffer, language) {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${OPENAI_API_KEY}`,
-                    ...formData.getHeaders(),
                 },
                 body: formData,
             });
@@ -92,19 +86,16 @@ export async function transcribeAudio(audioBuffer, language) {
 
         } else {
             // ── Local Faster-Whisper (Offline fallback) ──
-            const form = new FormData();
-            form.append('file', Buffer.from(audioBuffer), {
-                filename: 'recording.webm',
-                contentType: 'audio/webm',
-            });
-            form.append('model', STT_MODEL);
-            form.append('language', lang);
-            form.append('response_format', 'json');
+            const formData = new FormData();
+            const audioBlob = new Blob([audioBuffer], { type: 'audio/webm' });
+            formData.append('file', audioBlob, 'recording.webm');
+            formData.append('model', STT_MODEL);
+            formData.append('language', lang);
+            formData.append('response_format', 'json');
 
             const response = await fetch(`${STT_BASE_URL}/v1/audio/transcriptions`, {
                 method: 'POST',
-                headers: form.getHeaders(),
-                body: form,
+                body: formData,
             });
 
             if (!response.ok) {
@@ -132,7 +123,7 @@ export async function transcribeAudio(audioBuffer, language) {
  * Check if STT is configured and healthy.
  */
 export async function checkSTTHealth() {
-    if (GROQ_API_KEY || OPENAI_API_KEY) return true; // API-based STT is always "healthy"
+    if (GROQ_API_KEY || OPENAI_API_KEY) return true;
     try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 3000);
