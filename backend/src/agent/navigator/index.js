@@ -195,12 +195,12 @@ export class Navigator {
             ].filter(Boolean);
 
             // Helper: find first working selector on the page
-            const findSelector = async (selectors) => {
+            const findSelector = async (selectors, perSelectorTimeout = 2000) => {
                 for (const sel of selectors) {
                     try {
                         const loc = this.page.locator(sel).first();
-                        const visible = await loc.isVisible({ timeout: 1000 }).catch(() => false);
-                        if (visible) return sel;
+                        await loc.waitFor({ state: 'visible', timeout: perSelectorTimeout });
+                        return sel;
                     } catch { /* try next */ }
                 }
                 return null;
