@@ -5,7 +5,7 @@ const OPENAI_API_KEY     = process.env.OPENAI_API_KEY;
 const OPENAI_MODEL       = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-const OPENROUTER_MODEL   = process.env.OPENROUTER_MODEL || 'anthropic/claude-3.5-sonnet';
+const OPENROUTER_MODEL   = process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.3-70b-instruct:free';
 
 const GROQ_API_KEY       = process.env.GROQ_API_KEY;
 const GROQ_MODEL         = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
