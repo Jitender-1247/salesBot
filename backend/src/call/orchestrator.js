@@ -43,35 +43,54 @@ export class CallOrchestrator {
         this.lastAgentMessage = ''; // Track what the agent was saying (for interruption context)
         this.wasInterrupted = false; // Whether the current turn is from an interruption
         this.idleTimer = null; // Timer for proactive idle check-in
-        this.idlePromptCount = 0; // How many idle prompts we've sent (avoid spamming)
+        this.autoEndTimer = null; // Timer for 45s auto-end on inactivity
+        this.idlePromptCount = 0; // How many idle prompts we've sent
     }
 
-    // ── Idle Timer: proactively check in if user goes silent ──
-    static IDLE_TIMEOUT_MS = 8000; // 8 seconds of silence before asking
+    // ── Idle & Inactivity Timers ──
+    static IDLE_TIMEOUT_MS = 10000;     // 10 seconds of silence before checking in
+    static AUTO_END_TIMEOUT_MS = 45000; // 45 seconds of silence before auto-ending session
 
     startIdleTimer() {
         this.clearIdleTimer();
-        if (!this.isActive || this.idlePromptCount >= 2) return; // Max 2 idle prompts per session
+        if (!this.isActive) return;
 
-        this.idleTimer = setTimeout(async () => {
-            if (!this.isActive || this.isProcessing || this.isAgentSpeaking) return;
+        // 1. Check-in prompt every 10 seconds (max 2 prompts)
+        if (this.idlePromptCount < 2) {
+            this.idleTimer = setTimeout(async () => {
+                if (!this.isActive || this.isProcessing || this.isAgentSpeaking) return;
 
-            this.idlePromptCount++;
-            console.log(`⏰ Idle timeout — prompting user (${this.idlePromptCount}/2)`);
+                this.idlePromptCount++;
+                console.log(`⏰ Idle timeout (10s) — prompting user (${this.idlePromptCount}/2)`);
 
-            const prompts = [
-                "Hey, just checking in — is there anything else you'd like me to show you?",
-                "Still there? Feel free to ask me anything or I can continue showing you around!"
-            ];
-            const prompt = prompts[this.idlePromptCount - 1] || prompts[0];
+                const prompts = [
+                    "Hey, just checking in — is there anything else you'd like me to show you?",
+                    "Still there? Feel free to ask me anything or I can continue showing you around!"
+                ];
+                const prompt = prompts[this.idlePromptCount - 1] || prompts[0];
 
-            await this.agentSpeak(prompt);
-            this.conversationHistory.push({ role: 'assistant', content: prompt });
-            this.transcript += `\nAgent: ${prompt}`;
+                await this.agentSpeak(prompt);
+                this.conversationHistory.push({ role: 'assistant', content: prompt });
+                this.transcript += `\nAgent: ${prompt}`;
 
-            // Restart the idle timer in case they still don't respond
-            this.startIdleTimer();
-        }, CallOrchestrator.IDLE_TIMEOUT_MS);
+                // Schedule next check-in
+                this.startIdleTimer();
+            }, CallOrchestrator.IDLE_TIMEOUT_MS);
+        }
+
+        // 2. Auto-End Inactivity Timer (45 seconds total silence)
+        if (!this.autoEndTimer) {
+            this.autoEndTimer = setTimeout(async () => {
+                if (!this.isActive) return;
+
+                console.log('⌛ 45s inactivity reached — auto-ending session');
+                const farewell = `It looks like you're away. I'm going to end our demo session for now. Thanks for exploring ${this.product?.name || 'our demo'}!`;
+                await this.agentSpeak(farewell);
+
+                this.io.to(this.callId).emit('demo-ended', { callId: this.callId, reason: 'inactive' });
+                await this.end('', '', 'completed');
+            }, CallOrchestrator.AUTO_END_TIMEOUT_MS);
+        }
     }
 
     clearIdleTimer() {
@@ -79,10 +98,14 @@ export class CallOrchestrator {
             clearTimeout(this.idleTimer);
             this.idleTimer = null;
         }
+        if (this.autoEndTimer) {
+            clearTimeout(this.autoEndTimer);
+            this.autoEndTimer = null;
+        }
     }
 
     resetIdleTimer() {
-        this.idlePromptCount = 0; // Reset count when user actually speaks
+        this.idlePromptCount = 0; // Reset count when user speaks
         this.clearIdleTimer();
     }
 
