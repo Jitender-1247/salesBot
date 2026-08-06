@@ -119,7 +119,12 @@ export class Navigator {
                         cookies = cookies.map(c => {
                             const cookie = { ...c };
                             if (cookie.sameSite === 'no_restriction') cookie.sameSite = 'None';
-                            if (cookie.sameSite === 'unspecified') delete cookie.sameSite;
+                            if (cookie.sameSite === 'lax') cookie.sameSite = 'Lax';
+                            if (cookie.sameSite === 'strict') cookie.sameSite = 'Strict';
+                            if (cookie.sameSite === 'none') cookie.sameSite = 'None';
+                            if (!['Strict', 'Lax', 'None'].includes(cookie.sameSite)) {
+                                delete cookie.sameSite;
+                            }
                             if (cookie.expirationDate) {
                                 cookie.expires = cookie.expirationDate;
                                 delete cookie.expirationDate;
