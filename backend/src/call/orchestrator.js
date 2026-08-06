@@ -369,42 +369,40 @@ export class CallOrchestrator {
                 return;
             }
 
-            // ── Generate TTS audio and emit directly to browser (always works, even without Keyframe) ──
-            let audioBuffer = null;
+            // ── Send speak payload to Keyframe Python agent for real-time lip-synced audio & video ──
+            const payload = JSON.stringify({ type: 'speak', text });
+            let keyframeSuccess = false;
+
             try {
-                audioBuffer = await speak(text, controller.signal);
-                if (audioBuffer && audioBuffer.length > 0) {
-                    // Emit the raw MP3 buffer to the browser via socket.io
-                    // The frontend AudioPlayer will decode and play it immediately
-                    this.io.to(this.callId).emit('agent-audio', audioBuffer);
-                    console.log(`🔊 Sent ${audioBuffer.length} bytes of audio directly to browser`);
-                }
-            } catch (ttsErr) {
-                if (ttsErr.name !== 'AbortError') {
-                    console.log('⚠️ TTS generation failed, continuing without audio:', ttsErr.message);
+                await this.livekitRoomSvc.sendData(
+                    this.roomName,
+                    Buffer.from(payload),
+                    0 // RELIABLE delivery
+                );
+                keyframeSuccess = true;
+                console.log(`📡 Sent speak data to Keyframe agent: "${text.substring(0, 60)}..."`);
+            } catch (e) {
+                console.log(`ℹ️ Keyframe not in room (will fallback to direct socket audio): ${e.message}`);
+            }
+
+            // ── Fallback direct socket audio ONLY if Keyframe is offline ──
+            let audioBuffer = null;
+            if (!keyframeSuccess) {
+                try {
+                    audioBuffer = await speak(text, controller.signal);
+                    if (audioBuffer && audioBuffer.length > 0) {
+                        this.io.to(this.callId).emit('agent-audio', audioBuffer);
+                        console.log(`🔊 [Fallback] Sent ${audioBuffer.length} bytes of audio via socket`);
+                    }
+                } catch (ttsErr) {
+                    if (ttsErr.name !== 'AbortError') {
+                        console.log('⚠️ TTS generation failed:', ttsErr.message);
+                    }
                 }
             }
 
-            // ── Also send to Keyframe Python sidecar for lip-sync (best-effort, non-blocking) ──
-            // If Keyframe is offline, this fails silently. Browser audio via socket is the primary.
-            const payload = JSON.stringify({ type: 'speak', text });
-            this.livekitRoomSvc.sendData(
-                this.roomName,
-                Buffer.from(payload),
-                0 // RELIABLE delivery
-            ).then(() => {
-                console.log(`📡 Sent speak data to Keyframe agent: ${text.substring(0, 60)}...`);
-            }).catch(e => {
-                // Keyframe not available — that's OK, browser has audio already
-                console.log(`ℹ️ Keyframe not in room (using browser audio fallback): ${e.message}`);
-            });
-
-            // Wait for audio to finish playing (estimate from text length)
-            // ElevenLabs at ~150wpm: chars/5 words * 400ms/word
-            const estimatedMs = audioBuffer
-                ? Math.max(1500, (text.length / 5) * 400)
-                : Math.max(2000, (text.length / 5) * 400);
-
+            // Wait for audio speech to complete
+            const estimatedMs = Math.max(1800, (text.length / 5) * 380);
             await new Promise(resolve => setTimeout(resolve, estimatedMs));
 
             if (this.interruptRequested && interruptId < this.speechSequence) {

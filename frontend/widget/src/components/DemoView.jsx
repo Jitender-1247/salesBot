@@ -62,47 +62,9 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
                     }
                 }, msPerWord);
 
-                // ── Browser TTS (Web Speech API) — instant, no API key needed ──
-                // Will be automatically overridden if real ElevenLabs audio arrives via socket
-                audioReceivedRef.current = false;
-                if ('speechSynthesis' in window) {
-                    window.speechSynthesis.cancel(); // cancel any previous speech
-                    const utter = new SpeechSynthesisUtterance(data.text);
-
-                    // Pick best available English female voice
-                    const pickVoice = () => {
-                        const voices = window.speechSynthesis.getVoices();
-                        // Prefer Google/Chrome neural voices → then any en-US female → fallback to default
-                        const preferred = voices.find(v =>
-                            /Google US English Female/i.test(v.name)
-                        ) || voices.find(v =>
-                            v.lang.startsWith('en') && /female|woman|samantha|karen|zira|susan|victoria|moira/i.test(v.name)
-                        ) || voices.find(v => v.lang === 'en-US') || null;
-                        return preferred;
-                    };
-
-                    const setVoice = () => {
-                        const voice = pickVoice();
-                        if (voice) utter.voice = voice;
-                    };
-
-                    // Voices may not load instantly
-                    setVoice();
-                    if (!utter.voice) {
-                        window.speechSynthesis.addEventListener('voiceschanged', setVoice, { once: true });
-                    }
-
-                    utter.rate = 1.05;
-                    utter.pitch = 1.0;
-                    utter.volume = 1.0;
-                    synthRef.current = utter;
-                    window.speechSynthesis.speak(utter);
-                }
-
             } else {
                 clearInterval(typingRef.current);
                 if (data.interrupted) {
-                    window.speechSynthesis?.cancel();
                     audioPlayerRef.current?.stop();
                     setDisplayedText('');
                 }
