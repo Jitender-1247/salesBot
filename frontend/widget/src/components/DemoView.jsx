@@ -22,10 +22,11 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
     const [visitorToken, setVisitorToken] = useState('');
     const audioPlayerRef = useRef(null);
     const timerRef = useRef(null);
-    const typingRef = useRef(null);  // interval for word-by-word transcript
-    const [displayedText, setDisplayedText] = useState(''); // animated transcript
-    const synthRef = useRef(null); // Web Speech API synthesis utterance ref
-    const audioReceivedRef = useRef(false); // true when real ElevenLabs audio arrives via socket
+    const typingRef = useRef(null);
+    const [displayedText, setDisplayedText] = useState('');
+    const synthRef = useRef(null);
+    const audioReceivedRef = useRef(false);
+    const [micVolume, setMicVolume] = useState(0); // live mic level 0-1
 
     const genId = () => `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
@@ -332,12 +333,20 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
                             onRecordingStop={handleRecordingStop}
                             onInterrupt={handleInterrupt}
                             isSpeaking={agentState === 'speaking'}
+                            onVolumeChange={setMicVolume}
                         />
                     </div>
 
-                    {/* Live user transcript strip */}
+                    {/* Live user transcript strip with mic level bar */}
                     <div className={`user-transcript-strip ${userText ? 'visible' : ''}`}>
                         <span className="transcript-mic">🎤</span>
+                        {/* Mic level bar — always shows, pulses with voice */}
+                        <div className="mic-level-bar-track">
+                            <div
+                                className="mic-level-bar-fill"
+                                style={{ width: `${Math.min(100, micVolume * 1800)}%` }}
+                            />
+                        </div>
                         <span className="transcript-text">{userText || 'Just speak — always on'}</span>
                     </div>
                 </div>

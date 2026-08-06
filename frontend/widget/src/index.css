@@ -686,6 +686,23 @@ body::before {
   font-style: normal;
 }
 
+/* ── Mic Level Bar (inside transcript strip) ── */
+.mic-level-bar-track {
+  width: 60px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.mic-level-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #7c3aed, #a78bfa);
+  border-radius: 4px;
+  transition: width 0.05s ease-out;
+  min-width: 2px;
+}
 
 /* ── Bottom Controls Bar ── */
 .controls-bar {
