@@ -1,14 +1,42 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-const GROQ_API_KEY    = process.env.GROQ_API_KEY;
-const GROQ_MODEL      = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
-const GROQ_BASE_URL   = 'https://api.groq.com/openai/v1';
+const OPENAI_API_KEY     = process.env.OPENAI_API_KEY;
+const OPENAI_MODEL       = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
-const OLLAMA_MODEL    = process.env.OLLAMA_MODEL || 'qwen3:1.7b';
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const OPENROUTER_MODEL   = process.env.OPENROUTER_MODEL || 'anthropic/claude-3.5-sonnet';
 
-const USE_GROQ = Boolean(GROQ_API_KEY);
+const GROQ_API_KEY       = process.env.GROQ_API_KEY;
+const GROQ_MODEL         = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+
+const OLLAMA_BASE_URL    = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+const OLLAMA_MODEL       = process.env.OLLAMA_MODEL || 'qwen3:1.7b';
+
+// Determine LLM Provider Priority: OpenAI > OpenRouter > Groq > Ollama
+let PROVIDER_NAME = 'ollama';
+let LLM_API_KEY = '';
+let LLM_BASE_URL = '';
+let LLM_MODEL = '';
+
+if (OPENAI_API_KEY) {
+    PROVIDER_NAME = 'OpenAI';
+    LLM_API_KEY = OPENAI_API_KEY;
+    LLM_BASE_URL = 'https://api.openai.com/v1';
+    LLM_MODEL = OPENAI_MODEL;
+} else if (OPENROUTER_API_KEY) {
+    PROVIDER_NAME = 'OpenRouter';
+    LLM_API_KEY = OPENROUTER_API_KEY;
+    LLM_BASE_URL = 'https://openrouter.ai/api/v1';
+    LLM_MODEL = OPENROUTER_MODEL;
+} else if (GROQ_API_KEY) {
+    PROVIDER_NAME = 'Groq';
+    LLM_API_KEY = GROQ_API_KEY;
+    LLM_BASE_URL = 'https://api.groq.com/openai/v1';
+    LLM_MODEL = GROQ_MODEL;
+}
+
+const USE_REMOTE_LLM = Boolean(LLM_API_KEY);
 
 const languageNames = {
     en: 'English', hi: 'Hindi', es: 'Spanish',
@@ -232,16 +260,16 @@ export async function think(transcript, language, knowledgeMap, conversationHist
     try {
         let content = '';
 
-        if (USE_GROQ) {
-            // ── Groq (OpenAI-compatible API) ──
-            const response = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
+        if (USE_REMOTE_LLM) {
+            // ── OpenAI-Compatible API (OpenAI / OpenRouter / Groq) ──
+            const response = await fetch(`${LLM_BASE_URL}/chat/completions`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${GROQ_API_KEY}`
+                    'Authorization': `Bearer ${LLM_API_KEY}`
                 },
                 body: JSON.stringify({
-                    model: GROQ_MODEL,
+                    model: LLM_MODEL,
                     messages,
                     max_tokens: 350,
                     temperature: 0.4
@@ -250,16 +278,16 @@ export async function think(transcript, language, knowledgeMap, conversationHist
 
             if (!response.ok) {
                 const errorText = await response.text();
-                console.log('❌ Groq error:', errorText);
-                throw new Error(`Groq error: ${response.status}`);
+                console.log(`❌ ${PROVIDER_NAME} error:`, errorText);
+                throw new Error(`${PROVIDER_NAME} error: ${response.status}`);
             }
 
             const data = await response.json();
             content = data.choices?.[0]?.message?.content || '';
             content = stripThinkBlocks(content);
-            console.log('\n--- RAW GROQ OUTPUT ---');
+            console.log(`\n--- RAW ${PROVIDER_NAME} (${LLM_MODEL}) OUTPUT ---`);
             console.log(content);
-            console.log('-----------------------\n');
+            console.log('-------------------------------------------\n');
 
         } else {
             // ── Ollama (local fallback) ──
