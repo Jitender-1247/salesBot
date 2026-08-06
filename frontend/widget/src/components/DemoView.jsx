@@ -24,9 +24,9 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
     const timerRef = useRef(null);
     const typingRef = useRef(null);
     const [displayedText, setDisplayedText] = useState('');
-    const synthRef = useRef(null);
-    const audioReceivedRef = useRef(false);
+    const [audioReceived, setAudioReceived] = useState(false);
     const [micVolume, setMicVolume] = useState(0); // live mic level 0-1
+    const [isAvatarReady, setIsAvatarReady] = useState(false); // waits for live 3D avatar to attach
 
     const genId = () => `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
@@ -205,14 +205,33 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
     };
 
     const handleAvatarReady = useCallback(() => {
+        setIsAvatarReady(true);
         if (socket && callData) {
-            console.log('[DemoView] Avatar track attached, notifying backend...');
+            console.log('[DemoView] Live 3D Avatar connected — starting demo in sync!');
             socket.emit('avatar-ready', { callId: callData.callId });
         }
     }, [socket, callData]);
 
     return (
         <div className="app-container">
+            {/* Fullscreen Loading Screen — waits for Live 3D Avatar to connect */}
+            {!isAvatarReady && (
+                <div className="demo-loading-overlay">
+                    <div className="demo-loading-card">
+                        <div className="demo-loading-avatar-icon">
+                            <div className="pulsing-glow" />
+                            👩‍💼
+                        </div>
+                        <h2 className="demo-loading-title">Connecting Live AI Agent</h2>
+                        <p className="demo-loading-subtitle">
+                            Starting 3D Avatar & Live Browser Session...
+                        </p>
+                        <div className="demo-loading-spinner" />
+                        <span className="demo-loading-status">Synchronizing video & audio...</span>
+                    </div>
+                </div>
+            )}
+
             {/* Header */}
             <header className="app-header">
                 <div>

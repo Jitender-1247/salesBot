@@ -1381,6 +1381,95 @@ body::before {
   z-index: 1;
 }
 
+/* ── Full-screen Demo Loading Overlay ── */
+.demo-loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(10, 8, 22, 0.94);
+  backdrop-filter: blur(20px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.demo-loading-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 40px 48px;
+  background: rgba(23, 19, 45, 0.85);
+  border: 1px solid rgba(124, 58, 237, 0.3);
+  border-radius: 24px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6), 0 0 32px rgba(124, 58, 237, 0.15);
+  max-width: 420px;
+  width: 100%;
+}
+
+.demo-loading-avatar-icon {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 38px;
+  margin-bottom: 20px;
+}
+
+.pulsing-glow {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 2px solid rgba(167, 139, 250, 0.6);
+  animation: avatarPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes avatarPulse {
+  0%, 100% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.12); opacity: 0.3; }
+}
+
+.demo-loading-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #f3f4f6;
+  margin-bottom: 8px;
+}
+
+.demo-loading-subtitle {
+  font-size: 0.85rem;
+  color: rgba(200, 185, 255, 0.7);
+  margin-bottom: 24px;
+  line-height: 1.4;
+}
+
+.demo-loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(124, 58, 237, 0.2);
+  border-top-color: #a78bfa;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 16px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.demo-loading-status {
+  font-size: 0.78rem;
+  color: #c4b5fd;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
 .no-product p {
   color: var(--status-error);
   font-size: 0.85rem;
