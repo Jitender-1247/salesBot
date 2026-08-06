@@ -1,4 +1,5 @@
 import { transcribeAudio } from '../agent/stt.js';
+import { speak } from '../agent/tts.js';
 import { think } from '../agent/brain/index.js';
 import { Navigator } from '../agent/navigator/index.js';
 import { decrypt } from '../utils/encryption.js';
@@ -368,39 +369,42 @@ export class CallOrchestrator {
                 return;
             }
 
-            // ── Send text to the Keyframe Python sidecar ──
-            // Keyframe agent fetches TTS, pushes PCM frames → Keyframe renders lip-sync
-            // and publishes BOTH audio+video to the room. Frontend uses RoomAudioRenderer
-            // to play, which is naturally in sync with the video. ONE source = no desync.
-            const payload = JSON.stringify({ type: 'speak', text });
-            let dataSent = false;
-            for (let i = 0; i < 5; i++) {
-                try {
-                    await this.livekitRoomSvc.sendData(
-                        this.roomName,
-                        Buffer.from(payload),
-                        0 // RELIABLE delivery
-                    );
-                    dataSent = true;
-                    break;
-                } catch (e) {
-                    if (e.message.includes('does not exist')) {
-                        console.log(`⏳ Room ${this.roomName} not ready yet, retrying data message...`);
-                        await new Promise(r => setTimeout(r, 1000));
-                    } else {
-                        throw e;
-                    }
+            // ── Generate TTS audio and emit directly to browser (always works, even without Keyframe) ──
+            let audioBuffer = null;
+            try {
+                audioBuffer = await speak(text, controller.signal);
+                if (audioBuffer && audioBuffer.length > 0) {
+                    // Emit the raw MP3 buffer to the browser via socket.io
+                    // The frontend AudioPlayer will decode and play it immediately
+                    this.io.to(this.callId).emit('agent-audio', audioBuffer);
+                    console.log(`🔊 Sent ${audioBuffer.length} bytes of audio directly to browser`);
+                }
+            } catch (ttsErr) {
+                if (ttsErr.name !== 'AbortError') {
+                    console.log('⚠️ TTS generation failed, continuing without audio:', ttsErr.message);
                 }
             }
-            if (!dataSent) {
-                console.warn(`⚠️ Failed to send speak data after 5 retries for room: ${this.roomName}`);
-            } else {
-                console.log(`📡 Sent speak data to Keyframe agent: ${text.substring(0, 60)}...`);
-            }
 
-            // Wait a proportional time for speech to complete
-            // Keyframe agent is the audio source — we estimate duration to pace the agent loop
-            const estimatedMs = Math.max(2000, (text.length / 5) * 400);
+            // ── Also send to Keyframe Python sidecar for lip-sync (best-effort, non-blocking) ──
+            // If Keyframe is offline, this fails silently. Browser audio via socket is the primary.
+            const payload = JSON.stringify({ type: 'speak', text });
+            this.livekitRoomSvc.sendData(
+                this.roomName,
+                Buffer.from(payload),
+                0 // RELIABLE delivery
+            ).then(() => {
+                console.log(`📡 Sent speak data to Keyframe agent: ${text.substring(0, 60)}...`);
+            }).catch(e => {
+                // Keyframe not available — that's OK, browser has audio already
+                console.log(`ℹ️ Keyframe not in room (using browser audio fallback): ${e.message}`);
+            });
+
+            // Wait for audio to finish playing (estimate from text length)
+            // ElevenLabs at ~150wpm: chars/5 words * 400ms/word
+            const estimatedMs = audioBuffer
+                ? Math.max(1500, (text.length / 5) * 400)
+                : Math.max(2000, (text.length / 5) * 400);
+
             await new Promise(resolve => setTimeout(resolve, estimatedMs));
 
             if (this.interruptRequested && interruptId < this.speechSequence) {

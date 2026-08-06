@@ -81,7 +81,7 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
 
         const onUserTranscript = (data) => {
             setUserText(data.text);
-            setTimeout(() => setUserText(''), 5000);
+            setTimeout(() => setUserText(''), 6000);
         };
 
         const onAgentAudio = (audioData) => {
@@ -278,7 +278,7 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
                     <div className="controls-bar">
                         <AudioPlayer
                             ref={audioPlayerRef}
-                            muted={true}
+                            muted={false}
                             onPlaybackStart={handlePlaybackStart}
                             onPlaybackEnd={handlePlaybackEnd}
                         />
@@ -291,6 +291,12 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
                             onInterrupt={handleInterrupt}
                             isSpeaking={agentState === 'speaking'}
                         />
+                    </div>
+
+                    {/* Live user transcript strip */}
+                    <div className={`user-transcript-strip ${userText ? 'visible' : ''}`}>
+                        <span className="transcript-mic">🎤</span>
+                        <span className="transcript-text">{userText || 'Just speak — always on'}</span>
                     </div>
                 </div>
             </main>

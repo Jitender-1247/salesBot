@@ -637,6 +637,56 @@ body::before {
   font-style: italic;
 }
 
+/* ── Live User Transcript Strip (always visible at bottom) ── */
+.user-transcript-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 20px;
+  background: rgba(15, 12, 30, 0.7);
+  border-top: 1px solid rgba(124, 58, 237, 0.15);
+  min-height: 36px;
+  transition: background 0.3s ease;
+}
+
+.user-transcript-strip.visible {
+  background: rgba(124, 58, 237, 0.12);
+  border-top-color: rgba(124, 58, 237, 0.35);
+  animation: transcriptPulse 0.3s ease-out;
+}
+
+@keyframes transcriptPulse {
+  0% { opacity: 0.5; transform: translateY(4px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.transcript-mic {
+  font-size: 0.85rem;
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.user-transcript-strip.visible .transcript-mic {
+  opacity: 1;
+}
+
+.transcript-text {
+  font-size: 0.78rem;
+  color: rgba(200, 185, 255, 0.5);
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.3s ease;
+}
+
+.user-transcript-strip.visible .transcript-text {
+  color: #c4b5fd;
+  font-weight: 500;
+  font-style: normal;
+}
+
+
 /* ── Bottom Controls Bar ── */
 .controls-bar {
   display: flex;
