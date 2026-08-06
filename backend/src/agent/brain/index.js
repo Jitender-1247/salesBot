@@ -146,12 +146,13 @@ function buildSystemPrompt(language, knowledgeMap, productName, pageContext) {
     const persona = culturalPersona[lang] || culturalPersona.en;
 
     // Build a lean page list (just name + url)
-    const pageList = knowledgeMap.pages
+    const pages = knowledgeMap?.pages || [];
+    const pageList = pages
         .map(p => `  • ${p.name}: ${p.url}`)
         .join('\n');
 
     // Build a lean feature summary
-    const featureSummary = knowledgeMap.pages
+    const featureSummary = pages
         .map(p => `${p.name}: ${p.keyFeatures?.join(', ') || p.description || ''}`)
         .join('\n');
 
