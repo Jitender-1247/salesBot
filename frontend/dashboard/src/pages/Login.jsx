@@ -25,32 +25,61 @@ export default function Login() {
     };
 
     return (
-        <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center px-4">
-            <div className="w-full max-w-md">
+        <div className="min-h-screen flex items-center justify-center px-4 relative overflow-hidden"
+            style={{ background: '#07070f' }}>
+
+            {/* Ambient glow */}
+            <div className="absolute inset-0 pointer-events-none" style={{
+                background: 'radial-gradient(ellipse 600px 400px at 50% 40%, rgba(124, 58, 237, 0.08), transparent)',
+            }} />
+
+            <div className="w-full max-w-[400px] relative z-10 animate-fade-in">
 
                 {/* Logo */}
                 <div className="text-center mb-8">
-                    <span className="text-3xl font-black text-indigo-500">⚡ SalesBot</span>
-                    <p className="text-gray-500 mt-2 text-sm">AI-powered sales demo platform</p>
+                    <div className="inline-flex items-center gap-2.5 mb-3">
+                        <div className="w-9 h-9 rounded-lg flex items-center justify-center text-sm"
+                            style={{ background: 'linear-gradient(135deg, #7c3aed, #6d28d9)' }}>
+                            ⚡
+                        </div>
+                        <span className="text-xl font-bold"
+                            style={{
+                                background: 'linear-gradient(135deg, #c4b5fd, #8b5cf6)',
+                                WebkitBackgroundClip: 'text',
+                                WebkitTextFillColor: 'transparent',
+                            }}>
+                            SalesBot
+                        </span>
+                    </div>
+                    <p style={{ color: '#5c5672', fontSize: '13px' }}>AI-powered sales demo platform</p>
                 </div>
 
                 {/* Card */}
-                <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-2xl p-8">
-                    <h2 className="text-2xl font-bold text-white mb-1">Welcome back</h2>
-                    <p className="text-gray-500 text-sm mb-8">Sign in to your account</p>
+                <div className="glass-card p-8">
+                    <h2 className="text-xl font-semibold mb-1">Welcome back</h2>
+                    <p style={{ color: '#5c5672', fontSize: '13px', marginBottom: '28px' }}>
+                        Sign in to your account
+                    </p>
 
                     {error && (
-                        <div className="bg-red-950 border border-red-500 text-red-400 rounded-lg px-4 py-3 text-sm mb-6">
+                        <div className="mb-5 px-4 py-3 rounded-[10px] text-[13px] font-medium"
+                            style={{
+                                background: 'rgba(239, 68, 68, 0.08)',
+                                border: '1px solid rgba(239, 68, 68, 0.2)',
+                                color: '#f87171',
+                            }}>
                             {error}
                         </div>
                     )}
 
-                    <form onSubmit={handleSubmit} className="space-y-5">
+                    <form onSubmit={handleSubmit} className="flex flex-col gap-5">
                         <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-2">Email</label>
+                            <label className="block text-[12px] font-medium mb-2" style={{ color: '#9892a6' }}>
+                                Email
+                            </label>
                             <input
                                 type="email"
-                                className="w-full bg-[#0f0f0f] border border-[#2a2a2a] rounded-lg px-4 py-3 text-white text-sm outline-none focus:border-indigo-500 transition-colors"
+                                className="sb-input"
                                 placeholder="you@company.com"
                                 value={form.email}
                                 onChange={e => setForm({ ...form, email: e.target.value })}
@@ -58,30 +87,26 @@ export default function Login() {
                             />
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-2">Password</label>
+                            <label className="block text-[12px] font-medium mb-2" style={{ color: '#9892a6' }}>
+                                Password
+                            </label>
                             <input
                                 type="password"
-                                className="w-full bg-[#0f0f0f] border border-[#2a2a2a] rounded-lg px-4 py-3 text-white text-sm outline-none focus:border-indigo-500 transition-colors"
+                                className="sb-input"
                                 placeholder="••••••••"
                                 value={form.password}
                                 onChange={e => setForm({ ...form, password: e.target.value })}
                                 required
                             />
                         </div>
-                        <button
-                            type="submit"
-                            disabled={loading}
-                            className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold rounded-lg py-3 transition-colors mt-2"
-                        >
+                        <button type="submit" disabled={loading} className="sb-btn-primary w-full py-3 mt-1">
                             {loading ? 'Signing in...' : 'Sign in'}
                         </button>
                     </form>
 
-                    <p className="text-center text-sm text-gray-500 mt-6">
+                    <p className="text-center mt-6" style={{ color: '#5c5672', fontSize: '13px' }}>
                         Don't have an account?{' '}
-                        <Link to="/register" className="text-indigo-400 hover:text-indigo-300 font-semibold">
-                            Sign up
-                        </Link>
+                        <Link to="/register" className="font-semibold">Sign up</Link>
                     </p>
                 </div>
             </div>

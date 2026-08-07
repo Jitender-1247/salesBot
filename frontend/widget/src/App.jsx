@@ -10,8 +10,7 @@ export default function App() {
     const [callData, setCallData] = useState(null);
     const [error, setError] = useState('');
     const [screenImage, setScreenImage] = useState(null);
-    const [endForm, setEndForm] = useState({ name: '', email: '' });
-    const [submitted, setSubmitted] = useState(false);
+    const [userForm, setUserForm] = useState({ name: '', email: '' });
 
     const params = new URLSearchParams(window.location.search);
     const productId = params.get('pid');
@@ -43,26 +42,28 @@ export default function App() {
         return () => s.disconnect();
     }, []);
 
-    const startDemo = () => {
+    const startDemo = (e) => {
+        if (e) e.preventDefault();
         if (!socket || !productId) return;
         setError('');
         setScreenImage(null);
-        socket.emit('start-demo', { productId });
+        socket.emit('start-demo', {
+            productId,
+            prospectName: userForm.name,
+            prospectEmail: userForm.email,
+        });
         setScreen('loading');
     };
 
-    const endDemo = (email, name) => {
-        if (!socket || !callData) return;
-        socket.emit('end-demo', {
-            callId: callData.callId,
-            prospectEmail: email,
-            prospectName: name,
-        });
-    };
-
-    const handleEndSubmit = () => {
-        endDemo(endForm.email, endForm.name);
-        setSubmitted(true);
+    const endDemo = () => {
+        if (socket && callData) {
+            socket.emit('end-demo', {
+                callId: callData.callId,
+                prospectEmail: userForm.email,
+                prospectName: userForm.name,
+            });
+        }
+        setScreen('end');
     };
 
     if (!productId) {
@@ -99,15 +100,37 @@ export default function App() {
                         ))}
                     </div>
 
-                    {error && <div className="landing-error">{error}</div>}
+                    {/* Pre-session Lead Collection Form */}
+                    <form onSubmit={startDemo} className="landing-form">
+                        <div className="form-group">
+                            <label>Your Name</label>
+                            <input
+                                type="text"
+                                placeholder="John Smith"
+                                value={userForm.name}
+                                onChange={e => setUserForm({ ...userForm, name: e.target.value })}
+                            />
+                        </div>
+                        <div className="form-group">
+                            <label>Your Email</label>
+                            <input
+                                type="email"
+                                placeholder="you@company.com"
+                                value={userForm.email}
+                                onChange={e => setUserForm({ ...userForm, email: e.target.value })}
+                            />
+                        </div>
 
-                    <button className="start-btn" onClick={startDemo}>
-                        <span>🚀</span>
-                        <span>Start Live Demo</span>
-                    </button>
+                        {error && <div className="landing-error">{error}</div>}
+
+                        <button type="submit" className="start-btn">
+                            <span>🚀</span>
+                            <span>Start Live Demo</span>
+                        </button>
+                    </form>
 
                     <p className="landing-footer">
-                        Takes about 2-5 minutes • No signup required
+                        Takes about 2-5 minutes • Instant access
                     </p>
                 </div>
             </div>
@@ -132,65 +155,8 @@ export default function App() {
                 callData={callData}
                 socket={socket}
                 screenImage={screenImage}
-                onEnd={() => setScreen('ending')}
+                onEnd={endDemo}
             />
-        );
-    }
-
-    // ── End Call Form ──
-    if (screen === 'ending') {
-        if (submitted) {
-            return (
-                <div className="thankyou-screen">
-                    <div className="thankyou-icon">🎉</div>
-                    <h2>Thanks for joining!</h2>
-                    <p>Our team will be in touch soon.</p>
-                </div>
-            );
-        }
-
-        return (
-            <div className="endcall-screen">
-                <div className="endcall-card">
-                    <div className="endcall-header">
-                        <div className="endcall-icon">👋</div>
-                        <h2>Great talking with you!</h2>
-                        <p className="endcall-subtitle">
-                            Leave your details and our team will follow up with a personalized offer.
-                        </p>
-                    </div>
-
-                    <div className="endcall-form">
-                        <div className="form-group">
-                            <label>Your Name</label>
-                            <input
-                                type="text"
-                                placeholder="John Smith"
-                                value={endForm.name}
-                                onChange={e => setEndForm({ ...endForm, name: e.target.value })}
-                            />
-                        </div>
-                        <div className="form-group">
-                            <label>Your Email</label>
-                            <input
-                                type="email"
-                                placeholder="you@company.com"
-                                value={endForm.email}
-                                onChange={e => setEndForm({ ...endForm, email: e.target.value })}
-                            />
-                        </div>
-                    </div>
-
-                    <div className="endcall-actions">
-                        <button className="submit-btn" onClick={handleEndSubmit}>
-                            Submit & Get Follow Up
-                        </button>
-                        <button className="skip-btn" onClick={() => endDemo('', '')}>
-                            Skip
-                        </button>
-                    </div>
-                </div>
-            </div>
         );
     }
 

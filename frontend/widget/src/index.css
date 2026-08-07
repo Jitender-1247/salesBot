@@ -1115,6 +1115,15 @@ body::before {
   color: var(--text-secondary);
 }
 
+.landing-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 20px;
+  margin-bottom: 20px;
+  text-align: left;
+}
+
 .landing-error {
   padding: 12px 16px;
   background: rgba(239, 68, 68, 0.1);

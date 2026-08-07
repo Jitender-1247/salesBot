@@ -10,12 +10,9 @@ export default function Embed() {
     const [copied, setCopied] = useState(false);
 
     const serverUrl = 'http://localhost:5000';
-
     const embedCode = `<script src="${serverUrl}/agent.js" data-product-id="${id}" data-server="${serverUrl}"></script>`;
 
-    useEffect(() => {
-        fetchProduct();
-    }, [id]);
+    useEffect(() => { fetchProduct(); }, [id]);
 
     const fetchProduct = async () => {
         try {
@@ -34,86 +31,70 @@ export default function Embed() {
         setTimeout(() => setCopied(false), 2000);
     };
 
-    if (loading) {
-        return (
-            <div className="flex min-h-screen bg-[#0f0f0f]">
-                <Sidebar />
-                <main className="flex-1 p-8">
-                    <p className="text-gray-500">Loading...</p>
-                </main>
-            </div>
-        );
-    }
+    if (loading) return (
+        <div className="flex min-h-screen" style={{ background: '#07070f' }}>
+            <Sidebar />
+            <main className="flex-1 p-8 flex items-center justify-center">
+                <div className="w-7 h-7 rounded-full animate-spin" style={{ border: '2px solid rgba(124,58,237,0.2)', borderTopColor: '#a78bfa' }} />
+            </main>
+        </div>
+    );
 
     return (
-        <div className="flex min-h-screen bg-[#0f0f0f]">
+        <div className="flex min-h-screen" style={{ background: '#07070f' }}>
             <Sidebar />
-
-            <main className="flex-1 p-8">
-
-                {/* Header */}
+            <main className="flex-1 p-8 animate-fade-in">
                 <div className="mb-8">
-                    <div className="flex items-center gap-3 mb-1">
-                        <Link to="/products" className="text-gray-500 hover:text-white text-sm">
-                            Products
-                        </Link>
-                        <span className="text-gray-600">→</span>
-                        <Link to={`/products/${id}`} className="text-gray-500 hover:text-white text-sm">
-                            {product?.name}
-                        </Link>
-                        <span className="text-gray-600">→</span>
-                        <span className="text-white text-sm">Embed Code</span>
+                    <div className="flex items-center gap-2 mb-2 text-[12px]">
+                        <Link to="/products" style={{ color: '#5c5672' }} className="hover:text-white">Products</Link>
+                        <span style={{ color: '#3d3852' }}>→</span>
+                        <Link to={`/products/${id}`} style={{ color: '#5c5672' }} className="hover:text-white">{product?.name}</Link>
+                        <span style={{ color: '#3d3852' }}>→</span>
+                        <span className="text-white">Embed Code</span>
                     </div>
-                    <h1 className="text-2xl font-bold text-white">Embed Code</h1>
-                    <p className="text-gray-500 mt-1">
+                    <h1 className="text-2xl font-bold">Embed Code</h1>
+                    <p className="text-[13px] mt-1" style={{ color: '#5c5672' }}>
                         Add this one line of code to your website to activate the AI demo agent
                     </p>
                 </div>
 
-                <div className="max-w-2xl space-y-6">
-
-                    {/* Status Check */}
+                <div className="max-w-2xl flex flex-col gap-5">
                     {product?.explorationStatus !== 'ready' && (
-                        <div className="bg-yellow-950 border border-yellow-800 rounded-xl p-4">
-                            <p className="text-yellow-400 text-sm font-medium">
+                        <div className="rounded-[12px] p-4 flex items-center gap-3"
+                            style={{ background: 'rgba(250, 204, 21, 0.06)', border: '1px solid rgba(250, 204, 21, 0.15)', borderLeft: '3px solid #fbbf24' }}>
+                            <p className="text-[13px] font-medium" style={{ color: '#fbbf24' }}>
                                 ⚠️ Your product is still being explored. The embed will work once exploration is complete.
                             </p>
                         </div>
                     )}
 
-                    {/* Embed Code */}
-                    <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-6">
-                        <h2 className="text-white font-semibold mb-4">Your Embed Code</h2>
-                        <div className="bg-[#0f0f0f] border border-[#2a2a2a] rounded-lg p-4 mb-4">
-                            <code className="text-indigo-400 text-sm break-all">
-                                {embedCode}
-                            </code>
+                    {/* Code Card */}
+                    <div className="glass-card p-6">
+                        <h2 className="text-white font-semibold text-[14px] mb-4">Your Embed Code</h2>
+                        <div className="rounded-[10px] p-4 mb-4 font-mono text-[12px] overflow-x-auto break-all"
+                            style={{ background: '#0a0a14', border: '1px solid rgba(124, 58, 237, 0.2)', color: '#c4b5fd' }}>
+                            <code>{embedCode}</code>
                         </div>
-                        <button
-                            onClick={handleCopy}
-                            className={`w-full py-3 rounded-lg font-semibold text-sm transition-colors ${copied
-                                    ? 'bg-green-600 text-white'
-                                    : 'bg-indigo-600 hover:bg-indigo-500 text-white'
-                                }`}
-                        >
+                        <button onClick={handleCopy}
+                            className={`sb-btn-primary w-full py-3 ${copied ? '!bg-green-600' : ''}`}>
                             {copied ? '✅ Copied!' : '📋 Copy Embed Code'}
                         </button>
                     </div>
 
-                    {/* How to use */}
-                    <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-6">
-                        <h2 className="text-white font-semibold mb-4">How to add it</h2>
-                        <div className="space-y-4">
+                    {/* Steps */}
+                    <div className="glass-card p-6">
+                        <h2 className="text-white font-semibold text-[14px] mb-4">How to add it</h2>
+                        <div className="flex flex-col gap-4">
                             {[
-                                { step: '01', title: 'Copy the embed code above', desc: 'Click the copy button to copy the one-line script tag' },
-                                { step: '02', title: 'Paste before </body> tag', desc: 'Open your website\'s HTML and paste the code just before the closing body tag' },
-                                { step: '03', title: 'That\'s it!', desc: 'A "Live Demo" button will appear on your website. Visitors click it to start a live AI demo' },
+                                { step: '01', title: 'Copy the embed code above', desc: 'Click the copy button to copy the script tag' },
+                                { step: '02', title: 'Paste before </body> tag', desc: 'Open your website\'s HTML and paste the code just before closing body tag' },
+                                { step: '03', title: 'That\'s it!', desc: 'A floating "Live Demo" button will appear on your website automatically' },
                             ].map(item => (
                                 <div key={item.step} className="flex gap-4">
-                                    <span className="text-indigo-500 font-bold text-sm w-8 shrink-0">{item.step}</span>
+                                    <span className="font-bold text-[13px] w-6 flex-shrink-0" style={{ color: '#7c3aed' }}>{item.step}</span>
                                     <div>
-                                        <p className="text-white text-sm font-medium">{item.title}</p>
-                                        <p className="text-gray-500 text-xs mt-1">{item.desc}</p>
+                                        <p className="text-white text-[13px] font-medium">{item.title}</p>
+                                        <p className="text-[12px] mt-0.5" style={{ color: '#5c5672' }}>{item.desc}</p>
                                     </div>
                                 </div>
                             ))}
@@ -121,20 +102,21 @@ export default function Embed() {
                     </div>
 
                     {/* Preview */}
-                    <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-6">
-                        <h2 className="text-white font-semibold mb-4">What visitors will see</h2>
-                        <div className="bg-[#0f0f0f] rounded-lg p-8 relative min-h-32 flex items-center justify-center">
-                            <p className="text-gray-600 text-sm">Your website content here</p>
-                            <div className="absolute bottom-4 right-4 bg-indigo-600 text-white px-4 py-2.5 rounded-full text-sm font-semibold flex items-center gap-2 shadow-lg">
-                                <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                    <div className="glass-card p-6">
+                        <h2 className="text-white font-semibold text-[14px] mb-4">What visitors will see</h2>
+                        <div className="rounded-[10px] p-8 relative min-h-32 flex items-center justify-center overflow-hidden"
+                            style={{ background: '#0a0a14', border: '1px solid rgba(255,255,255,0.05)' }}>
+                            <p className="text-[13px]" style={{ color: '#3d3852' }}>Your website content here</p>
+                            <div className="absolute bottom-4 right-4 text-white px-4 py-2.5 rounded-full text-[13px] font-semibold flex items-center gap-2 shadow-lg cursor-pointer"
+                                style={{ background: 'linear-gradient(135deg, #7c3aed, #6d28d9)', boxShadow: '0 4px 20px rgba(124,58,237,0.4)' }}>
+                                <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: '#4ade80' }} />
                                 Live Demo
                             </div>
                         </div>
-                        <p className="text-gray-500 text-xs mt-3 text-center">
-                            A floating "Live Demo" button appears on your website
+                        <p className="text-[11px] mt-3 text-center" style={{ color: '#5c5672' }}>
+                            A floating "Live Demo" button appears in the bottom right corner of your site
                         </p>
                     </div>
-
                 </div>
             </main>
         </div>
