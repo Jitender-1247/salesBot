@@ -9,6 +9,8 @@ import NewProduct from './pages/NewProduct';
 import ProductDetail from './pages/ProductDetail';
 import CallDetail from './pages/CallDetail';
 import Embed from './pages/Embed';
+import TestUI from './pages/TestUI';
+import { ThemeProvider } from './context/ThemeContext';
 
 const PrivateRoute = ({ children }) => {
   const token = localStorage.getItem('token');
@@ -17,10 +19,12 @@ const PrivateRoute = ({ children }) => {
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <ThemeProvider>
+      <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/test-ui" element={<TestUI />} />
         <Route path="/" element={<PrivateRoute><Bots /></PrivateRoute>} />
         <Route path="/bots/:botType" element={<PrivateRoute><BotInstances /></PrivateRoute>} />
         <Route path="/bots/:botType/:productId" element={<PrivateRoute><BotDashboard /></PrivateRoute>} />
@@ -31,5 +35,6 @@ export default function App() {
         <Route path="/embed/:id" element={<PrivateRoute><Embed /></PrivateRoute>} />
       </Routes>
     </BrowserRouter>
+  </ThemeProvider>
   );
 }

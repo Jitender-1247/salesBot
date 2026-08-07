@@ -9,7 +9,7 @@ const BOT_TYPES = [
         name: 'SalesBot',
         personaName: 'Sofia',
         icon: '⚡',
-        description: 'AI voice agent that gives live, personalized product demos to your website visitors.',
+        description: 'AI voice & vision sales agent that gives live, personalized product demos to your website visitors.',
     },
 ];
 
@@ -33,72 +33,112 @@ export default function Bots() {
     };
 
     return (
-        <div className="flex min-h-screen" style={{ background: '#07070f' }}>
+        <div className="flex min-h-screen">
             <Sidebar />
-            <main className="flex-1 p-8 animate-fade-in">
+
+            <main className="flex-1 min-w-0 p-10 animate-fade-in relative z-10">
+
                 {/* Welcome Header */}
-                <div className="mb-8">
-                    <h1 className="text-2xl font-bold">
-                        Good day,{' '}
-                        <span style={{
-                            background: 'linear-gradient(135deg, #c4b5fd, #8b5cf6)',
-                            WebkitBackgroundClip: 'text',
-                            WebkitTextFillColor: 'transparent',
-                        }}>
-                            {client.name?.split(' ')[0]} 👋
-                        </span>
-                    </h1>
-                    <p className="mt-1" style={{ color: '#5c5672', fontSize: '13px' }}>
-                        Choose a bot to see its full analytics and conversations
-                    </p>
+                <div className="flex items-center justify-between mb-10">
+                    <div>
+                        <div className="flex items-center gap-3 mb-2">
+                            <span className="status-pill status-pill-purple">
+                                <span className="status-dot-pulse" style={{ color: '#8b5cf6' }} />
+                                Executive Dashboard
+                            </span>
+                        </div>
+                        <h1 className="text-3xl font-extrabold tracking-tight">
+                            Good day, <span className="gradient-text">{client.name?.split(' ')[0] || 'Partner'}</span> 👋
+                        </h1>
+                        <p className="text-slate-400 text-sm mt-1">
+                            Select an AI agent type to view performance metrics, live sessions, and qualified lead pipelines.
+                        </p>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                        <div className="ultra-card-static px-5 py-3 flex items-center gap-4">
+                            <div>
+                                <p className="text-xs text-slate-400 font-medium">Total Demo Sessions</p>
+                                <p className="text-xl font-bold text-white font-mono">{loading ? '—' : stats?.totalCalls ?? 0}</p>
+                            </div>
+                            <div className="w-[1px] h-8 bg-white/10" />
+                            <div>
+                                <p className="text-xs text-slate-400 font-medium">Qualified Leads</p>
+                                <p className="text-xl font-bold text-emerald-400 font-mono">{loading ? '—' : stats?.qualifiedLeads ?? 0}</p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-5 stagger">
+                {/* Agent Cards Grid */}
+                <div className="grid grid-cols-3 gap-6">
                     {BOT_TYPES.map(bot => (
                         <button
                             key={bot.id}
                             onClick={() => navigate(`/bots/${bot.id}`)}
-                            className="glass-card text-left p-6 cursor-pointer group animate-slide-up"
-                            style={{ border: '1px solid rgba(255,255,255,0.06)', fontFamily: 'Inter, sans-serif' }}
+                            className="ultra-card p-7 text-left cursor-pointer group flex flex-col justify-between min-h-[300px]"
                         >
-                            <div className="w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold text-white mb-4"
-                                style={{ background: 'linear-gradient(135deg, #7c3aed, #6d28d9)' }}>
-                                {bot.personaName.charAt(0)}
-                            </div>
-                            <h2 className="text-lg font-semibold text-white group-hover:text-[#c4b5fd] transition-colors">
-                                {bot.name}
-                            </h2>
-                            <p className="text-[11px] font-medium mt-0.5" style={{ color: '#7c3aed' }}>
-                                Persona: {bot.personaName}
-                            </p>
-                            <p className="text-[13px] mt-2 leading-relaxed" style={{ color: '#5c5672' }}>
-                                {bot.description}
-                            </p>
+                            <div>
+                                <div className="flex items-center justify-between mb-5">
+                                    <div className="w-13 h-13 rounded-2xl flex items-center justify-center text-xl font-extrabold text-white shadow-xl transition-transform duration-300 group-hover:scale-110"
+                                        style={{
+                                            background: 'linear-gradient(135deg, #7c3aed 0%, #6366f1 100%)',
+                                            boxShadow: '0 0 25px rgba(124, 58, 237, 0.4)',
+                                        }}>
+                                        {bot.personaName.charAt(0)}
+                                    </div>
+                                    <span className="status-pill status-pill-green">
+                                        <span className="status-dot-pulse" style={{ color: '#10b981' }} />
+                                        Active Agent
+                                    </span>
+                                </div>
 
-                            <div className="flex items-center gap-6 mt-5 pt-5" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                                <div>
-                                    <p className="text-white font-bold text-lg">
-                                        {loading ? '—' : stats?.totalCalls ?? 0}
-                                    </p>
-                                    <p className="text-[11px]" style={{ color: '#5c5672' }}>Sessions</p>
+                                <h2 className="text-xl font-bold text-white group-hover:text-purple-300 transition-colors"
+                                    style={{ fontFamily: 'Outfit, sans-serif' }}>
+                                    {bot.name}
+                                </h2>
+                                <p className="text-xs font-semibold text-purple-400 mt-0.5">
+                                    AI Persona: {bot.personaName}
+                                </p>
+                                <p className="text-slate-400 text-xs mt-3 leading-relaxed">
+                                    {bot.description}
+                                </p>
+                            </div>
+
+                            <div className="pt-6 mt-6 border-t border-white/[0.08] flex items-center justify-between">
+                                <div className="flex items-center gap-6">
+                                    <div>
+                                        <p className="text-white font-bold text-lg font-mono">
+                                            {loading ? '—' : stats?.totalCalls ?? 0}
+                                        </p>
+                                        <p className="text-slate-400 text-[11px] font-medium">Sessions</p>
+                                    </div>
+                                    <div className="w-[1px] h-6 bg-white/10" />
+                                    <div>
+                                        <p className="text-emerald-400 font-bold text-lg font-mono">
+                                            {loading ? '—' : stats?.qualifiedLeads ?? 0}
+                                        </p>
+                                        <p className="text-slate-400 text-[11px] font-medium">Leads</p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <p className="text-white font-bold text-lg">
-                                        {loading ? '—' : stats?.qualifiedLeads ?? 0}
-                                    </p>
-                                    <p className="text-[11px]" style={{ color: '#5c5672' }}>Leads</p>
-                                </div>
-                                <div className="ml-auto transition-colors" style={{ color: '#5c5672' }}>
-                                    <span className="group-hover:text-[#a78bfa]">→</span>
+
+                                <div className="w-9 h-9 rounded-xl bg-white/[0.05] flex items-center justify-center text-slate-400 group-hover:bg-purple-600 group-hover:text-white transition-all duration-200">
+                                    →
                                 </div>
                             </div>
                         </button>
                     ))}
 
-                    <div className="rounded-[14px] p-6 flex flex-col items-center justify-center text-center"
-                        style={{ border: '1px dashed rgba(255,255,255,0.08)' }}>
-                        <p className="text-3xl mb-3 opacity-30">➕</p>
-                        <p className="text-[13px]" style={{ color: '#5c5672' }}>More bot types coming soon</p>
+                    {/* Placeholder Card */}
+                    <div className="ultra-card-static p-7 flex flex-col items-center justify-center text-center min-h-[300px]"
+                        style={{ borderStyle: 'dashed', borderColor: 'rgba(255,255,255,0.1)' }}>
+                        <div className="w-12 h-12 rounded-2xl bg-white/[0.03] flex items-center justify-center text-2xl mb-4 text-slate-500">
+                            🤖
+                        </div>
+                        <h3 className="text-base font-semibold text-slate-400 mb-1">Custom Bot Archetypes</h3>
+                        <p className="text-slate-500 text-xs max-w-[200px] leading-relaxed">
+                            SupportBot, OnboardingBot & LeadGen agents coming in Q3.
+                        </p>
                     </div>
                 </div>
             </main>

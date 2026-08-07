@@ -1,4 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import ThemeSwitcher from './ThemeSwitcher';
 
 const navItems = [
     { path: '/', icon: '⚡', label: 'Bots' },
@@ -22,116 +23,130 @@ export default function Sidebar() {
     };
 
     return (
-        <aside className="w-[240px] min-h-screen flex flex-col"
+        <aside className="w-[260px] min-h-screen flex flex-col flex-shrink-0 relative z-20 transition-all duration-300"
             style={{
-                background: '#0a0a16',
-                borderRight: '1px solid rgba(255,255,255,0.05)',
+                background: 'var(--bg-sidebar)',
+                backdropFilter: 'blur(24px)',
+                WebkitBackdropFilter: 'blur(24px)',
+                borderRight: '1px solid var(--border-light)',
             }}
         >
-            {/* Brand */}
-            <div className="px-5 py-5" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                <Link to="/" className="flex items-center gap-2.5 no-underline">
-                    <div className="w-8 h-8 rounded-lg flex items-center justify-center text-sm"
-                        style={{ background: 'linear-gradient(135deg, #7c3aed, #6d28d9)' }}>
+            {/* Brand Header */}
+            <div className="px-6 py-6 border-b" style={{ borderColor: 'var(--border-light)' }}>
+                <Link to="/" className="flex items-center gap-3 no-underline group">
+                    <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-xl shadow-lg transition-transform duration-200 group-hover:scale-105"
+                        style={{
+                            background: 'var(--accent-gradient)',
+                            boxShadow: 'var(--shadow-glow)',
+                        }}>
                         ⚡
                     </div>
-                    <span className="text-[15px] font-bold tracking-tight"
-                        style={{
-                            background: 'linear-gradient(135deg, #c4b5fd 0%, #8b5cf6 100%)',
-                            WebkitBackgroundClip: 'text',
-                            WebkitTextFillColor: 'transparent',
-                        }}>
-                        SalesBot
-                    </span>
+                    <div>
+                        <span className="text-xl font-extrabold tracking-tight block"
+                            style={{ fontFamily: 'Outfit, sans-serif', color: 'var(--text-main)' }}>
+                            SalesBot
+                        </span>
+                        <span className="text-[10px] font-bold tracking-wider uppercase block -mt-1"
+                            style={{ color: 'var(--accent-primary)' }}>
+                            Enterprise AI
+                        </span>
+                    </div>
                 </Link>
             </div>
 
-            {/* Navigation */}
-            <nav className="flex-1 px-3 py-4 flex flex-col gap-1">
+            {/* Main Navigation */}
+            <nav className="flex-1 px-4 py-6 space-y-2">
+                <div className="px-3 mb-2 text-[10px] font-extrabold uppercase tracking-wider"
+                    style={{ color: 'var(--text-muted)' }}>
+                    Navigation
+                </div>
+
                 {navItems.map(item => {
                     const active = isActive(item.path);
                     return (
                         <Link
                             key={item.path}
                             to={item.path}
-                            className="flex items-center gap-3 px-3 py-2.5 rounded-[10px] text-[13px] font-medium no-underline transition-all duration-150"
+                            className="flex items-center gap-3.5 px-4 py-3 rounded-2xl text-[13.5px] font-semibold no-underline transition-all duration-200 relative group"
                             style={{
-                                background: active ? 'rgba(124, 58, 237, 0.12)' : 'transparent',
-                                color: active ? '#c4b5fd' : '#6b6580',
-                                borderLeft: active ? '2px solid #7c3aed' : '2px solid transparent',
-                            }}
-                            onMouseEnter={e => {
-                                if (!active) {
-                                    e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
-                                    e.currentTarget.style.color = '#b8b0c8';
-                                }
-                            }}
-                            onMouseLeave={e => {
-                                if (!active) {
-                                    e.currentTarget.style.background = 'transparent';
-                                    e.currentTarget.style.color = '#6b6580';
-                                }
+                                background: active ? 'var(--accent-gradient)' : 'transparent',
+                                color: active ? '#ffffff' : 'var(--text-sub)',
+                                boxShadow: active ? 'var(--shadow-glow)' : 'none',
                             }}
                         >
-                            <span className="text-base w-5 text-center">{item.icon}</span>
+                            <span className={`text-lg w-6 text-center transition-transform duration-200 ${active ? 'scale-110' : 'group-hover:scale-110'}`}>
+                                {item.icon}
+                            </span>
                             <span>{item.label}</span>
                         </Link>
                     );
                 })}
 
-                {/* Add Product shortcut */}
+                <div className="pt-4 px-3 mb-2 text-[10px] font-extrabold uppercase tracking-wider"
+                    style={{ color: 'var(--text-muted)' }}>
+                    Quick Actions
+                </div>
+
                 <Link
                     to="/products/new"
-                    className="flex items-center gap-3 px-3 py-2.5 rounded-[10px] text-[13px] font-medium no-underline mt-3 transition-all duration-150"
+                    className="flex items-center gap-3.5 px-4 py-3 rounded-2xl text-[13.5px] font-semibold no-underline transition-all duration-200"
                     style={{
-                        color: '#7c3aed',
-                        border: '1px dashed rgba(124, 58, 237, 0.25)',
-                    }}
-                    onMouseEnter={e => {
-                        e.currentTarget.style.background = 'rgba(124, 58, 237, 0.08)';
-                        e.currentTarget.style.borderColor = 'rgba(124, 58, 237, 0.4)';
-                    }}
-                    onMouseLeave={e => {
-                        e.currentTarget.style.background = 'transparent';
-                        e.currentTarget.style.borderColor = 'rgba(124, 58, 237, 0.25)';
+                        background: 'var(--bg-surface)',
+                        color: 'var(--accent-primary)',
+                        border: '1px dashed var(--border-hover)',
                     }}
                 >
-                    <span className="text-base w-5 text-center">＋</span>
+                    <span className="text-lg w-6 text-center">✨</span>
                     <span>Add Product</span>
                 </Link>
+
+                <div className="pt-4 px-3 mb-2 text-[10px] font-extrabold uppercase tracking-wider"
+                    style={{ color: 'var(--text-muted)' }}>
+                    Theme Switcher
+                </div>
+                <div className="px-1">
+                    <ThemeSwitcher />
+                </div>
             </nav>
 
-            {/* User */}
-            <div className="px-3 py-4" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                <div className="flex items-center gap-3 px-3 py-2">
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold"
-                        style={{ background: 'linear-gradient(135deg, #7c3aed, #6d28d9)' }}>
+            {/* User Info Footer */}
+            <div className="p-4 border-t" style={{ borderColor: 'var(--border-light)' }}>
+                <div className="flex items-center gap-3 p-3 rounded-2xl"
+                    style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-light)' }}>
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-xs font-bold shadow-md"
+                        style={{ background: 'var(--accent-gradient)' }}>
                         {client.name?.charAt(0).toUpperCase() || 'U'}
                     </div>
                     <div className="flex-1 min-w-0">
-                        <p className="text-[13px] font-medium text-white truncate">{client.name}</p>
-                        <p className="text-[11px] truncate" style={{ color: '#5c5672' }}>{client.email}</p>
+                        <p className="text-[13px] font-bold truncate" style={{ color: 'var(--text-main)' }}>
+                            {client.name || 'User'}
+                        </p>
+                        <p className="text-[11px] truncate" style={{ color: 'var(--text-muted)' }}>
+                            {client.email || 'user@company.com'}
+                        </p>
                     </div>
                 </div>
+
                 <button
                     onClick={handleLogout}
-                    className="w-full mt-1 px-3 py-2 text-[12px] rounded-[8px] text-left transition-all duration-150 cursor-pointer"
+                    className="w-full mt-2 py-2 px-3 text-[12px] font-bold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer"
                     style={{
-                        color: '#5c5672',
+                        color: 'var(--text-muted)',
                         background: 'transparent',
-                        border: 'none',
-                        fontFamily: 'Inter, sans-serif',
+                        border: '1px solid transparent',
                     }}
                     onMouseEnter={e => {
-                        e.currentTarget.style.color = '#f87171';
-                        e.currentTarget.style.background = 'rgba(239, 68, 68, 0.08)';
+                        e.currentTarget.style.color = '#f43f5e';
+                        e.currentTarget.style.background = 'rgba(244, 63, 94, 0.1)';
+                        e.currentTarget.style.borderColor = 'rgba(244, 63, 94, 0.2)';
                     }}
                     onMouseLeave={e => {
-                        e.currentTarget.style.color = '#5c5672';
+                        e.currentTarget.style.color = 'var(--text-muted)';
                         e.currentTarget.style.background = 'transparent';
+                        e.currentTarget.style.borderColor = 'transparent';
                     }}
                 >
-                    Sign out
+                    <span>Sign out</span>
                 </button>
             </div>
         </aside>

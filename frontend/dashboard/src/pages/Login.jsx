@@ -26,88 +26,102 @@ export default function Login() {
 
     return (
         <div className="min-h-screen flex items-center justify-center px-4 relative overflow-hidden"
-            style={{ background: '#07070f' }}>
+            style={{ backgroundColor: '#080911' }}>
 
-            {/* Ambient glow */}
-            <div className="absolute inset-0 pointer-events-none" style={{
-                background: 'radial-gradient(ellipse 600px 400px at 50% 40%, rgba(124, 58, 237, 0.08), transparent)',
-            }} />
+            {/* Ambient Lighting Spots */}
+            <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] rounded-full pointer-events-none"
+                style={{
+                    background: 'radial-gradient(circle, rgba(139, 92, 246, 0.15) 0%, rgba(99, 102, 241, 0.05) 50%, transparent 80%)',
+                    filter: 'blur(60px)',
+                }} />
 
-            <div className="w-full max-w-[400px] relative z-10 animate-fade-in">
+            <div className="w-full max-w-[420px] relative z-10 animate-fade-in">
 
-                {/* Logo */}
+                {/* Logo & Brand */}
                 <div className="text-center mb-8">
-                    <div className="inline-flex items-center gap-2.5 mb-3">
-                        <div className="w-9 h-9 rounded-lg flex items-center justify-center text-sm"
-                            style={{ background: 'linear-gradient(135deg, #7c3aed, #6d28d9)' }}>
+                    <div className="inline-flex items-center gap-3 mb-3">
+                        <div className="w-11 h-11 rounded-2xl flex items-center justify-center text-xl shadow-xl"
+                            style={{
+                                background: 'linear-gradient(135deg, #7c3aed 0%, #6366f1 100%)',
+                                boxShadow: '0 0 25px rgba(124, 58, 237, 0.4)',
+                            }}>
                             ⚡
                         </div>
-                        <span className="text-xl font-bold"
-                            style={{
-                                background: 'linear-gradient(135deg, #c4b5fd, #8b5cf6)',
-                                WebkitBackgroundClip: 'text',
-                                WebkitTextFillColor: 'transparent',
-                            }}>
+                        <span className="text-2xl font-extrabold tracking-tight gradient-text"
+                            style={{ fontFamily: 'Outfit, sans-serif' }}>
                             SalesBot
                         </span>
                     </div>
-                    <p style={{ color: '#5c5672', fontSize: '13px' }}>AI-powered sales demo platform</p>
+                    <p className="text-slate-400 text-xs font-medium tracking-wide">
+                        Enterprise AI Sales Agent Platform
+                    </p>
                 </div>
 
-                {/* Card */}
-                <div className="glass-card p-8">
-                    <h2 className="text-xl font-semibold mb-1">Welcome back</h2>
-                    <p style={{ color: '#5c5672', fontSize: '13px', marginBottom: '28px' }}>
-                        Sign in to your account
+                {/* Glass Form Card */}
+                <div className="ultra-card-static p-8">
+                    <h2 className="text-2xl font-bold mb-1 gradient-text text-left" style={{ fontFamily: 'Outfit, sans-serif' }}>
+                        Welcome back
+                    </h2>
+                    <p className="text-slate-400 text-xs mb-6 text-left">
+                        Sign in to access your AI sales bot dashboard
                     </p>
 
                     {error && (
-                        <div className="mb-5 px-4 py-3 rounded-[10px] text-[13px] font-medium"
+                        <div className="mb-6 px-4 py-3 rounded-xl text-xs font-medium flex items-center gap-2"
                             style={{
-                                background: 'rgba(239, 68, 68, 0.08)',
-                                border: '1px solid rgba(239, 68, 68, 0.2)',
-                                color: '#f87171',
+                                background: 'rgba(244, 63, 94, 0.1)',
+                                border: '1px solid rgba(244, 63, 94, 0.25)',
+                                color: '#fb7185',
                             }}>
-                            {error}
+                            <span>⚠️</span>
+                            <span>{error}</span>
                         </div>
                     )}
 
-                    <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+                    <form onSubmit={handleSubmit} className="space-y-5 text-left">
                         <div>
-                            <label className="block text-[12px] font-medium mb-2" style={{ color: '#9892a6' }}>
-                                Email
+                            <label className="block text-xs font-semibold text-slate-300 mb-2">
+                                Email Address
                             </label>
                             <input
                                 type="email"
-                                className="sb-input"
+                                className="ultra-input"
                                 placeholder="you@company.com"
                                 value={form.email}
                                 onChange={e => setForm({ ...form, email: e.target.value })}
                                 required
                             />
                         </div>
+
                         <div>
-                            <label className="block text-[12px] font-medium mb-2" style={{ color: '#9892a6' }}>
-                                Password
-                            </label>
+                            <div className="flex justify-between items-center mb-2">
+                                <label className="block text-xs font-semibold text-slate-300">
+                                    Password
+                                </label>
+                            </div>
                             <input
                                 type="password"
-                                className="sb-input"
+                                className="ultra-input"
                                 placeholder="••••••••"
                                 value={form.password}
                                 onChange={e => setForm({ ...form, password: e.target.value })}
                                 required
                             />
                         </div>
-                        <button type="submit" disabled={loading} className="sb-btn-primary w-full py-3 mt-1">
-                            {loading ? 'Signing in...' : 'Sign in'}
+
+                        <button type="submit" disabled={loading} className="ultra-btn-primary w-full py-3.5 mt-2">
+                            {loading ? 'Signing in...' : 'Sign in to Dashboard'}
                         </button>
                     </form>
 
-                    <p className="text-center mt-6" style={{ color: '#5c5672', fontSize: '13px' }}>
-                        Don't have an account?{' '}
-                        <Link to="/register" className="font-semibold">Sign up</Link>
-                    </p>
+                    <div className="mt-8 pt-6 border-t border-white/[0.06] text-center">
+                        <p className="text-slate-400 text-xs">
+                            Don't have an account?{' '}
+                            <Link to="/register" className="font-semibold text-purple-400 hover:text-purple-300">
+                                Create an account
+                            </Link>
+                        </p>
+                    </div>
                 </div>
             </div>
         </div>
