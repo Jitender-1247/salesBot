@@ -7,7 +7,7 @@ const BOT_INFO = {
     salesbot: { name: 'SalesBot', personaName: 'Sofia', icon: '⚡' },
 };
 
-const COLORS = ['#7c3aed', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
+const COLORS = ['#8b5cf6', '#10b981', '#f59e0b', '#f43f5e', '#38bdf8', '#06b6d4'];
 const BAR_MAX_HEIGHT = 80;
 
 export default function BotDashboard() {
@@ -70,36 +70,36 @@ export default function BotDashboard() {
     };
 
     if (!bot) return (
-        <div className="flex min-h-screen" style={{ background: '#07070f' }}>
+        <div className="flex min-h-screen">
             <Sidebar />
             <main className="flex-1 p-8 flex items-center justify-center">
                 <div className="text-center">
                     <p className="text-4xl mb-4">🤖</p>
                     <h1 className="text-xl font-semibold text-white mb-2">Bot not found</h1>
-                    <p className="text-[13px] mb-6" style={{ color: '#5c5672' }}>"{botType}" isn't a bot type yet.</p>
-                    <Link to="/" className="text-[13px] font-medium">← Back to Bots</Link>
+                    <p className="text-xs text-slate-400 mb-6">"{botType}" isn't a bot type yet.</p>
+                    <Link to="/" className="text-xs font-semibold text-purple-400">← Back to Bots</Link>
                 </div>
             </main>
         </div>
     );
 
     if (loading) return (
-        <div className="flex min-h-screen" style={{ background: '#07070f' }}>
+        <div className="flex min-h-screen">
             <Sidebar />
             <main className="flex-1 p-8 flex items-center justify-center">
-                <div className="w-7 h-7 rounded-full animate-spin" style={{ border: '2px solid rgba(124,58,237,0.2)', borderTopColor: '#a78bfa' }} />
+                <div className="w-8 h-8 rounded-full animate-spin border-2 border-purple-500 border-t-transparent" />
             </main>
         </div>
     );
 
     if (!product) return (
-        <div className="flex min-h-screen" style={{ background: '#07070f' }}>
+        <div className="flex min-h-screen">
             <Sidebar />
             <main className="flex-1 p-8 flex items-center justify-center">
                 <div className="text-center">
                     <p className="text-4xl mb-4">🔍</p>
                     <h1 className="text-xl font-semibold text-white mb-2">Bot instance not found</h1>
-                    <Link to={`/bots/${botType}`} className="text-[13px] font-medium">← Back to {bot.name}</Link>
+                    <Link to={`/bots/${botType}`} className="text-xs font-semibold text-purple-400">← Back to {bot.name}</Link>
                 </div>
             </main>
         </div>
@@ -111,11 +111,11 @@ export default function BotDashboard() {
 
     const statCards = [
         { label: 'Total Sessions', value: analytics?.totalCalls || 0, icon: '📞', color: '#c4b5fd' },
-        { label: 'Completed', value: analytics?.completedCalls || 0, icon: '✅', color: '#4ade80' },
-        { label: 'Incomplete', value: analytics?.incompleteCalls || 0, icon: '⚠️', color: '#fbbf24' },
-        { label: 'Qualified Leads', value: analytics?.qualifiedLeads || 0, icon: '🎯', color: '#a78bfa' },
-        { label: 'Conversion Rate', value: `${analytics?.conversionRate || 0}%`, icon: '📈', color: '#f59e0b' },
-        { label: 'Avg Duration', value: formatDuration(analytics?.avgDuration || 0), icon: '⏱', color: '#60a5fa' },
+        { label: 'Completed', value: analytics?.completedCalls || 0, icon: '✅', color: '#10b981' },
+        { label: 'Incomplete', value: analytics?.incompleteCalls || 0, icon: '⚠️', color: '#f59e0b' },
+        { label: 'Qualified Leads', value: analytics?.qualifiedLeads || 0, icon: '🎯', color: '#8b5cf6' },
+        { label: 'Conversion Rate', value: `${analytics?.conversionRate || 0}%`, icon: '📈', color: '#38bdf8' },
+        { label: 'Avg Duration', value: formatDuration(analytics?.avgDuration || 0), icon: '⏱', color: '#06b6d4' },
     ];
 
     const filteredCalls = calls.filter(call => {
@@ -139,63 +139,74 @@ export default function BotDashboard() {
     const languages = [...new Set(calls.map(c => c.language).filter(Boolean))];
 
     return (
-        <div className="flex min-h-screen" style={{ background: '#07070f' }}>
+        <div className="flex min-h-screen">
             <Sidebar />
-            <main className="flex-1 p-8 overflow-y-auto animate-fade-in">
+            <main className="flex-1 min-w-0 p-8 overflow-y-auto animate-fade-in relative z-10 space-y-8">
 
                 {/* Header */}
-                <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center justify-between">
                     <div>
-                        <Link to={`/bots/${botType}`} className="text-[12px] mb-2 inline-block" style={{ color: '#5c5672' }}>
+                        <Link to={`/bots/${botType}`} className="text-xs font-semibold mb-2 inline-block" style={{ color: 'var(--text-sub)' }}>
                             ← {bot.name}
                         </Link>
                         <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full flex items-center justify-center text-base font-bold text-white"
-                                style={{ background: 'linear-gradient(135deg, #7c3aed, #6d28d9)' }}>
+                            <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-lg font-bold text-white shadow-lg"
+                                style={{ background: 'var(--accent-gradient)' }}>
                                 {bot.personaName.charAt(0)}
                             </div>
-                            <h1 className="text-2xl font-bold">{product.name}</h1>
+                            <h1 className="text-3xl font-extrabold tracking-tight" style={{ color: 'var(--text-main)', fontFamily: 'Outfit, sans-serif' }}>
+                                {product.name}
+                            </h1>
                         </div>
-                        <p className="text-[11px] font-medium mt-1 ml-[52px]" style={{ color: '#7c3aed' }}>
-                            {bot.personaName} • {bot.name}
+                        <p className="text-xs font-semibold mt-1 ml-[52px]" style={{ color: 'var(--accent-primary)' }}>
+                            AI Agent: {bot.personaName} • {product.url}
                         </p>
-                        <p className="text-[13px] mt-1" style={{ color: '#5c5672' }}>{product.url}</p>
                     </div>
-                    <button onClick={handleExport} className="sb-btn-ghost text-[13px]">
-                        📥 Export CSV
+                    <button onClick={handleExport} className="ultra-btn-secondary text-xs">
+                        📥 Export Sessions CSV
                     </button>
                 </div>
 
-                {/* Stat Cards */}
-                <div className="grid grid-cols-6 gap-4 mb-8 stagger">
+                {/* Stat Cards Grid with Distinct Borders & Shadows */}
+                <div className="grid grid-cols-6 gap-4">
                     {statCards.map((stat) => (
-                        <div key={stat.label} className="glass-card p-5 animate-slide-up">
-                            <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg mb-3"
-                                style={{ background: 'rgba(124, 58, 237, 0.12)' }}>
+                        <div key={stat.label} className="ultra-card p-5">
+                            <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg mb-3 shadow-inner"
+                                style={{ background: 'rgba(139, 92, 246, 0.12)' }}>
                                 {stat.icon}
                             </div>
-                            <p className="text-2xl font-bold" style={{ color: stat.color }}>{stat.value}</p>
-                            <p className="text-[11px] mt-1" style={{ color: '#5c5672' }}>{stat.label}</p>
+                            <p className="text-2xl font-extrabold font-mono tracking-tight" style={{ color: stat.color }}>
+                                {stat.value}
+                            </p>
+                            <p className="text-xs font-semibold mt-1" style={{ color: 'var(--text-sub)' }}>{stat.label}</p>
                         </div>
                     ))}
                 </div>
 
-                <div className="grid grid-cols-4 gap-5 mb-6">
+                {/* Charts Grid */}
+                <div className="grid grid-cols-4 gap-6">
                     {/* Calls per day chart */}
-                    <div className="col-span-2 glass-card p-6">
-                        <h2 className="text-white font-semibold text-[14px] mb-6">Sessions — Last 7 Days</h2>
-                        <div className="flex items-end justify-between gap-2 h-32">
+                    <div className="col-span-2 ultra-card p-6">
+                        <div className="flex items-center justify-between mb-6">
+                            <h2 className="font-bold text-sm" style={{ color: 'var(--text-main)' }}>Sessions — Last 7 Days</h2>
+                            <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full"
+                                style={{ background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-sub)' }}>
+                                Volume History
+                            </span>
+                        </div>
+                        <div className="flex items-end justify-between gap-3 h-36 pt-2">
                             {analytics?.callsPerDay?.map((day, i) => (
                                 <div key={i} className="flex-1 flex flex-col items-center gap-2">
-                                    <span className="text-[11px]" style={{ color: '#5c5672' }}>{day.count}</span>
-                                    <div className="w-full rounded-t-md transition-all hover:opacity-80"
+                                    <span className="text-[11px] font-bold font-mono" style={{ color: 'var(--text-sub)' }}>{day.count}</span>
+                                    <div className="w-full rounded-t-lg transition-all duration-300 hover:opacity-80"
                                         style={{
-                                            height: `${Math.max((day.count / maxCount) * BAR_MAX_HEIGHT, day.count > 0 ? 8 : 2)}px`,
-                                            opacity: day.count === 0 ? 0.2 : 1,
-                                            background: 'linear-gradient(180deg, #a78bfa 0%, #7c3aed 100%)',
+                                            height: `${Math.max((day.count / maxCount) * BAR_MAX_HEIGHT, day.count > 0 ? 10 : 3)}px`,
+                                            opacity: day.count === 0 ? 0.25 : 1,
+                                            background: 'var(--accent-gradient)',
+                                            boxShadow: day.count > 0 ? 'var(--shadow-glow)' : 'none',
                                         }}
                                     />
-                                    <span className="text-[11px] text-center leading-tight" style={{ color: '#3d3852' }}>
+                                    <span className="text-[11px] font-bold text-center leading-tight" style={{ color: 'var(--text-sub)' }}>
                                         {day.date.split(',')[0]}
                                     </span>
                                 </div>
@@ -204,24 +215,24 @@ export default function BotDashboard() {
                     </div>
 
                     {/* Language breakdown */}
-                    <div className="glass-card p-6">
-                        <h2 className="text-white font-semibold text-[14px] mb-6">Language Breakdown</h2>
+                    <div className="ultra-card p-6">
+                        <h2 className="font-bold text-sm mb-6" style={{ color: 'var(--text-main)' }}>Language Breakdown</h2>
                         {analytics?.languages?.length === 0 ? (
-                            <p className="text-[13px]" style={{ color: '#3d3852' }}>No data yet</p>
+                            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>No data captured yet</p>
                         ) : (
-                            <div className="flex flex-col gap-3">
+                            <div className="space-y-4">
                                 {analytics?.languages?.map((lang, i) => {
                                     const pct = analytics.totalCalls > 0
                                         ? Math.round((lang.count / analytics.totalCalls) * 100)
                                         : 0;
                                     return (
                                         <div key={lang.language}>
-                                            <div className="flex justify-between items-center mb-1">
-                                                <span className="text-[12px] font-medium uppercase text-white">{lang.language}</span>
-                                                <span className="text-[11px]" style={{ color: '#5c5672' }}>{lang.count} ({pct}%)</span>
+                                            <div className="flex justify-between items-center mb-1 text-xs font-semibold">
+                                                <span className="uppercase" style={{ color: 'var(--text-main)' }}>{lang.language}</span>
+                                                <span style={{ color: 'var(--text-sub)' }}>{lang.count} ({pct}%)</span>
                                             </div>
-                                            <div className="w-full rounded-full h-1.5" style={{ background: '#0a0a14' }}>
-                                                <div className="h-1.5 rounded-full transition-all"
+                                            <div className="w-full rounded-full h-2 overflow-hidden" style={{ background: 'var(--bg-input)' }}>
+                                                <div className="h-full rounded-full transition-all"
                                                     style={{ width: `${pct}%`, backgroundColor: COLORS[i % COLORS.length] }} />
                                             </div>
                                         </div>
@@ -232,17 +243,17 @@ export default function BotDashboard() {
                     </div>
 
                     {/* Visitor satisfaction */}
-                    <div className="glass-card p-6">
-                        <h2 className="text-white font-semibold text-[14px] mb-6">Visitor Satisfaction</h2>
+                    <div className="ultra-card p-6">
+                        <h2 className="font-bold text-sm mb-6" style={{ color: 'var(--text-main)' }}>Visitor Sentiment</h2>
                         {!analytics?.satisfaction || analytics.totalCalls === 0 ? (
-                            <p className="text-[13px]" style={{ color: '#3d3852' }}>No data yet</p>
+                            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>No data captured yet</p>
                         ) : (
-                            <div className="flex flex-col gap-3">
+                            <div className="space-y-4">
                                 {[
-                                    { key: 'positive', label: '🙂 Positive', color: '#22c55e' },
+                                    { key: 'positive', label: '🙂 Positive', color: '#10b981' },
                                     { key: 'neutral', label: '😐 Neutral', color: '#8b5cf6' },
-                                    { key: 'negative', label: '🙁 Negative', color: '#ef4444' },
-                                    { key: 'unknown', label: '❔ Unclear', color: '#5c5672' },
+                                    { key: 'negative', label: '🙁 Negative', color: '#f43f5e' },
+                                    { key: 'unknown', label: '❓ Unclear', color: '#64748b' },
                                 ].map(({ key, label, color }) => {
                                     const count = analytics.satisfaction[key] || 0;
                                     const pct = analytics.totalCalls > 0
@@ -250,12 +261,12 @@ export default function BotDashboard() {
                                         : 0;
                                     return (
                                         <div key={key}>
-                                            <div className="flex justify-between items-center mb-1">
-                                                <span className="text-[12px] font-medium text-white">{label}</span>
-                                                <span className="text-[11px]" style={{ color: '#5c5672' }}>{count} ({pct}%)</span>
+                                            <div className="flex justify-between items-center mb-1 text-xs font-semibold">
+                                                <span style={{ color: 'var(--text-main)' }}>{label}</span>
+                                                <span style={{ color: 'var(--text-sub)' }}>{count} ({pct}%)</span>
                                             </div>
-                                            <div className="w-full rounded-full h-1.5" style={{ background: '#0a0a14' }}>
-                                                <div className="h-1.5 rounded-full transition-all"
+                                            <div className="w-full rounded-full h-2 overflow-hidden" style={{ background: 'var(--bg-input)' }}>
+                                                <div className="h-full rounded-full transition-all"
                                                     style={{ width: `${pct}%`, backgroundColor: color }} />
                                             </div>
                                         </div>
@@ -266,118 +277,124 @@ export default function BotDashboard() {
                     </div>
                 </div>
 
-                {/* Tabs */}
-                <div className="flex gap-2 mb-5">
-                    <button onClick={() => setActiveTab('sessions')}
-                        className={`px-4 py-2 rounded-[10px] text-[13px] font-medium cursor-pointer transition-all duration-150 ${activeTab === 'sessions' ? 'sb-btn-primary' : 'sb-btn-ghost'}`}>
-                        📞 Conversations ({calls.length})
-                    </button>
-                    <button onClick={() => setActiveTab('leads')}
-                        className={`px-4 py-2 rounded-[10px] text-[13px] font-medium cursor-pointer transition-all duration-150 ${activeTab === 'leads' ? 'sb-btn-primary' : 'sb-btn-ghost'}`}>
-                        🎯 Leads ({leads.length})
-                    </button>
-                </div>
+                {/* Tabs Bar */}
+                <div className="flex items-center justify-between border-b pb-4" style={{ borderColor: 'var(--border-light)' }}>
+                    <div className="flex gap-3">
+                        <button onClick={() => setActiveTab('sessions')}
+                            className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer ${activeTab === 'sessions' ? 'ultra-btn-primary' : 'ultra-btn-secondary'}`}>
+                            📞 Conversations ({calls.length})
+                        </button>
+                        <button onClick={() => setActiveTab('leads')}
+                            className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer ${activeTab === 'leads' ? 'ultra-btn-primary' : 'ultra-btn-secondary'}`}>
+                            🎯 Qualified Leads ({leads.length})
+                        </button>
+                    </div>
 
-                {activeTab === 'sessions' && (
-                    <>
-                        <div className="flex gap-3 mb-5">
-                            <input type="text" placeholder="Search by name, email or product..."
-                                className="sb-input flex-1" value={search} onChange={e => setSearch(e.target.value)} />
-                            <select className="sb-input w-auto" value={filterQualified} onChange={e => setFilterQualified(e.target.value)}>
+                    {activeTab === 'sessions' && (
+                        <div className="flex items-center gap-3">
+                            <input type="text" placeholder="Search sessions by visitor name or email..."
+                                className="ultra-input text-xs w-[280px]" value={search} onChange={e => setSearch(e.target.value)} />
+                            <select className="ultra-input text-xs w-auto cursor-pointer" value={filterQualified} onChange={e => setFilterQualified(e.target.value)}>
                                 <option value="all">All leads</option>
-                                <option value="yes">Qualified</option>
+                                <option value="yes">Qualified Only</option>
                                 <option value="no">Unqualified</option>
                             </select>
-                            <select className="sb-input w-auto" value={filterLanguage} onChange={e => setFilterLanguage(e.target.value)}>
+                            <select className="ultra-input text-xs w-auto cursor-pointer" value={filterLanguage} onChange={e => setFilterLanguage(e.target.value)}>
                                 <option value="all">All languages</option>
                                 {languages.map(lang => (
                                     <option key={lang} value={lang}>{lang.toUpperCase()}</option>
                                 ))}
                             </select>
                         </div>
+                    )}
+                </div>
 
-                        {filteredCalls.length === 0 ? (
-                            <div className="glass-card p-16 text-center">
-                                <p className="text-4xl mb-4">📞</p>
-                                <h3 className="text-lg font-semibold text-white mb-2">No conversations found</h3>
-                                <p className="text-[13px]" style={{ color: '#5c5672' }}>Try adjusting your filters</p>
-                            </div>
-                        ) : (
-                            <div className="flex flex-col gap-2 stagger">
-                                {filteredCalls.map(call => (
-                                    <Link key={call._id} to={`/calls/${call._id}`}
-                                        className="glass-card p-4 flex items-center justify-between no-underline group animate-slide-up">
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-10 h-10 rounded-full flex items-center justify-center text-base"
-                                                style={{ background: 'rgba(124, 58, 237, 0.12)' }}>
-                                                👤
-                                            </div>
-                                            <div>
-                                                <p className="text-white font-medium text-[13px] group-hover:text-[#c4b5fd] transition-colors">
-                                                    {call.prospectName || 'Anonymous visitor'}
-                                                </p>
-                                                <p className="text-[12px] mt-0.5" style={{ color: '#5c5672' }}>
-                                                    {call.prospectEmail || 'No email captured'}
-                                                </p>
-                                                <p className="text-[11px] mt-1" style={{ color: '#3d3852' }}>
-                                                    {call.productId?.name} • {new Date(call.createdAt).toLocaleDateString()} • {formatDuration(call.duration || 0)}
-                                                </p>
-                                            </div>
+                {/* Tab Contents */}
+                {activeTab === 'sessions' && (
+                    filteredCalls.length === 0 ? (
+                        <div className="ultra-card p-16 text-center">
+                            <p className="text-4xl mb-4">📞</p>
+                            <h3 className="text-base font-bold text-white mb-2" style={{ color: 'var(--text-main)' }}>No conversations found</h3>
+                            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Try adjusting your search query or filters</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-3">
+                            {filteredCalls.map(call => (
+                                <Link key={call._id} to={`/calls/${call._id}`}
+                                    className="ultra-card p-5 flex items-center justify-between no-underline group">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-base shadow-md font-bold"
+                                            style={{ background: 'var(--accent-gradient)', color: '#ffffff' }}>
+                                            👤
                                         </div>
+                                        <div>
+                                            <p className="font-bold text-sm transition-colors group-hover:text-purple-300" style={{ color: 'var(--text-main)' }}>
+                                                {call.prospectName || 'Anonymous Visitor'}
+                                            </p>
+                                            <p className="text-xs mt-0.5" style={{ color: 'var(--text-sub)' }}>
+                                                {call.prospectEmail || 'No email captured'}
+                                            </p>
+                                            <p className="text-[11px] mt-1 font-mono" style={{ color: 'var(--text-muted)' }}>
+                                                {call.productId?.name} • {new Date(call.createdAt).toLocaleDateString()} • {formatDuration(call.duration || 0)}
+                                            </p>
+                                        </div>
+                                    </div>
 
-                                        <div className="flex items-center gap-3">
-                                            {call.qualified && <span className="sb-badge sb-badge-green">✅ Qualified</span>}
-                                            {call.satisfaction && call.satisfaction !== 'unknown' && (
-                                                <span className="text-xs" title={call.satisfactionReason || ''}>
-                                                    {call.satisfaction === 'positive' ? '🙂' : call.satisfaction === 'negative' ? '🙁' : '😐'}
-                                                </span>
-                                            )}
-                                            <span className={`sb-badge ${call.status === 'completed' ? 'sb-badge-green' : call.status === 'active' ? 'sb-badge-yellow animate-pulse' : 'sb-badge-gray'}`}>
-                                                {call.status}
+                                    <div className="flex items-center gap-3">
+                                        {call.qualified && <span className="status-pill status-pill-green">✅ Qualified</span>}
+                                        {call.satisfaction && call.satisfaction !== 'unknown' && (
+                                            <span className="text-sm" title={call.satisfactionReason || ''}>
+                                                {call.satisfaction === 'positive' ? '🙂' : call.satisfaction === 'negative' ? '🙁' : '😐'}
                                             </span>
-                                            {call.language && (
-                                                <span className="text-[10px] px-2 py-0.5 rounded uppercase font-mono" style={{ background: '#0a0a14', color: '#5c5672' }}>
-                                                    {call.language}
-                                                </span>
-                                            )}
-                                            <span className="text-[13px] group-hover:text-[#a78bfa] transition-colors" style={{ color: '#5c5672' }}>→</span>
-                                        </div>
-                                    </Link>
-                                ))}
-                            </div>
-                        )}
-                    </>
+                                        )}
+                                        <span className={`status-pill ${call.status === 'completed' ? 'status-pill-green' : call.status === 'active' ? 'status-pill-yellow' : 'status-pill-purple'}`}>
+                                            {call.status}
+                                        </span>
+                                        {call.language && (
+                                            <span className="text-[10px] px-2.5 py-1 rounded-md uppercase font-mono font-bold"
+                                                style={{ background: 'var(--bg-input)', border: '1px solid var(--border-light)', color: 'var(--text-sub)' }}>
+                                                {call.language}
+                                            </span>
+                                        )}
+                                        <span className="text-base transition-transform group-hover:translate-x-1" style={{ color: 'var(--text-muted)' }}>→</span>
+                                    </div>
+                                </Link>
+                            ))}
+                        </div>
+                    )
                 )}
 
                 {activeTab === 'leads' && (
                     leads.length === 0 ? (
-                        <div className="glass-card p-16 text-center">
+                        <div className="ultra-card p-16 text-center">
                             <p className="text-4xl mb-4">🎯</p>
-                            <h3 className="text-lg font-semibold text-white mb-2">No leads yet</h3>
-                            <p className="text-[13px]" style={{ color: '#5c5672' }}>Leads appear when visitors leave contact info</p>
+                            <h3 className="text-base font-bold mb-2" style={{ color: 'var(--text-main)' }}>No leads captured yet</h3>
+                            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Leads will automatically appear when visitors leave their contact info during demo sessions</p>
                         </div>
                     ) : (
-                        <div className="flex flex-col gap-2 stagger">
+                        <div className="space-y-3">
                             {leads.map(lead => (
-                                <div key={lead._id} className="glass-card p-4 flex items-center justify-between animate-slide-up">
+                                <div key={lead._id} className="ultra-card p-5 flex items-center justify-between">
                                     <div className="flex items-center gap-4">
-                                        <div className="w-10 h-10 rounded-full flex items-center justify-center text-base"
-                                            style={{ background: 'rgba(124, 58, 237, 0.12)' }}>👤</div>
+                                        <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-base font-bold shadow-md"
+                                            style={{ background: 'var(--accent-gradient)', color: '#ffffff' }}>
+                                            👤
+                                        </div>
                                         <div>
-                                            <p className="text-white font-medium text-[13px]">{lead.prospectName || 'Unknown'}</p>
-                                            <p className="text-[12px] mt-0.5" style={{ color: '#5c5672' }}>{lead.prospectEmail || 'No email'}</p>
-                                            <p className="text-[11px] mt-1" style={{ color: '#3d3852' }}>
-                                                {lead.productId?.name} • {new Date(lead.createdAt).toLocaleDateString()}
+                                            <p className="font-bold text-sm" style={{ color: 'var(--text-main)' }}>{lead.prospectName || 'Unknown Lead'}</p>
+                                            <p className="text-xs mt-0.5" style={{ color: 'var(--text-sub)' }}>{lead.prospectEmail || 'No email'}</p>
+                                            <p className="text-[11px] mt-1 font-mono" style={{ color: 'var(--text-muted)' }}>
+                                                {lead.productId?.name} • Captured {new Date(lead.createdAt).toLocaleDateString()}
                                             </p>
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-3">
-                                        <span className="sb-badge sb-badge-violet">{lead.status || 'Not Contacted'}</span>
-                                        <span className={`sb-badge ${lead.zohoSyncStatus === 'synced' ? 'sb-badge-green' : lead.zohoSyncStatus === 'failed' ? 'sb-badge-red' : lead.zohoSyncStatus === 'skipped' ? 'sb-badge-gray' : 'sb-badge-yellow'}`}
+                                        <span className="status-pill status-pill-purple">{lead.status || 'Not Contacted'}</span>
+                                        <span className={`status-pill ${lead.zohoSyncStatus === 'synced' ? 'status-pill-green' : lead.zohoSyncStatus === 'failed' ? 'status-pill-red' : 'status-pill-yellow'}`}
                                             title={lead.zohoSyncError || ''}>
-                                            {lead.zohoSyncStatus === 'synced' ? '✅ Synced to Zoho' : lead.zohoSyncStatus === 'failed' ? '⚠️ Zoho sync failed' : lead.zohoSyncStatus === 'skipped' ? '— Not synced' : '⏳ Syncing...'}
+                                            {lead.zohoSyncStatus === 'synced' ? '✅ Synced to Zoho CRM' : lead.zohoSyncStatus === 'failed' ? '⚠️ Zoho Sync Failed' : '⏳ Syncing to CRM'}
                                         </span>
-                                        <span className={`sb-badge ${lead.qualified ? 'sb-badge-green' : 'sb-badge-gray'}`}>
+                                        <span className={`status-pill ${lead.qualified ? 'status-pill-green' : 'status-pill-purple'}`}>
                                             {lead.qualified ? '✅ Qualified' : 'Unqualified'}
                                         </span>
                                     </div>
