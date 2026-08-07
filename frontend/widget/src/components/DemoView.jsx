@@ -278,8 +278,8 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
                         )}
                     </div>
 
-                    {/* Controls Bar */}
-                    <div className="controls-bar">
+                    {/* Hidden Audio Handler (recording & playback active in background) */}
+                    <div style={{ display: 'none' }}>
                         <AudioPlayer
                             ref={audioPlayerRef}
                             muted={false}
@@ -296,18 +296,6 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
                             isSpeaking={agentState === 'speaking'}
                             onVolumeChange={setMicVolume}
                         />
-                    </div>
-
-                    {/* Live user transcript strip with mic level bar */}
-                    <div className={`user-transcript-strip ${userText ? 'visible' : ''}`}>
-                        <span className="transcript-mic">🎤</span>
-                        <div className="mic-level-bar-track">
-                            <div
-                                className="mic-level-bar-fill"
-                                style={{ width: `${Math.min(100, micVolume * 1800)}%` }}
-                            />
-                        </div>
-                        <span className="transcript-text">{userText ? `You: ${userText}` : 'Speak freely — mic is live'}</span>
                     </div>
                 </div>
 
