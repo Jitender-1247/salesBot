@@ -88,8 +88,22 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
         };
 
         const onUserTranscript = (data) => {
+            if (!data.text) return;
             setUserText(data.text);
-            setTimeout(() => setUserText(''), 6000);
+
+            // Add user message to live transcript history stream
+            setMessages(prev => {
+                const last = prev[prev.length - 1];
+                if (last && last.role === 'user' && last.content === data.text) return prev;
+                return [...prev, {
+                    id: genId(),
+                    role: 'user',
+                    content: data.text,
+                    timestamp: new Date(),
+                }];
+            });
+
+            setTimeout(() => setUserText(''), 5000);
         };
 
         const onAgentAudio = (audioData) => {
@@ -150,18 +164,6 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
             });
         }
     }, [agentText]);
-
-    // Track user messages from user-transcript events
-    useEffect(() => {
-        if (userText) {
-            setMessages(prev => [...prev, {
-                id: genId(),
-                role: 'user',
-                content: userText,
-                timestamp: new Date(),
-            }]);
-        }
-    }, [userText]);
 
     const handleRecordingComplete = useCallback((audioBlob) => {
         if (!socket || !callData) return;
@@ -246,12 +248,12 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
                     </div>
                     <span className="header-timer">{formatDuration(duration)}</span>
                     <button className="end-demo-btn" onClick={onEnd} title="End Demo">
-                        📵
+                        end call 📵
                     </button>
                 </div>
             </header>
 
-            {/* Main Content — Left Browser View, Right Side Panel with Avatar & Transcript */}
+            {/* Main Content — Left Browser View, Right Side Panel with Avatar & Live Transcript */}
             <main className="main-content">
 
                 {/* Left Column: Product Screen View */}
@@ -305,13 +307,13 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
                                 style={{ width: `${Math.min(100, micVolume * 1800)}%` }}
                             />
                         </div>
-                        <span className="transcript-text">{userText || 'Speak freely — mic is live'}</span>
+                        <span className="transcript-text">{userText ? `You: ${userText}` : 'Speak freely — mic is live'}</span>
                     </div>
                 </div>
 
                 {/* Right Column: Avatar on Top, Live Transcript Below */}
                 <div className="side-panel">
-                    {/* Top: Avatar Video Card */}
+                    {/* Top: Avatar Video Card with Natural Portrait Aspect Ratio */}
                     <div className="side-avatar-card glass-card">
                         <div className="side-avatar-header">
                             <span className="side-avatar-dot" />
@@ -327,26 +329,36 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
                         </div>
                     </div>
 
-                    {/* Bottom: Live Transcript & Message Stream */}
+                    {/* Bottom: Live Transcript & Conversation Stream */}
                     <div className="side-transcript-card glass-card">
                         <div className="side-transcript-header">
                             <span>💬 Live Transcript</span>
-                            {agentState === 'speaking' && <span className="speaking-tag">Speaking...</span>}
+                            {agentState === 'speaking' ? (
+                                <span className="speaking-tag">Sofia Speaking...</span>
+                            ) : agentState === 'listening' ? (
+                                <span className="speaking-tag !bg-cyan-500/20 !text-cyan-400">Listening...</span>
+                            ) : null}
                         </div>
 
                         {/* Real-time word-by-word active speech banner */}
-                        {displayedText && (
+                        {displayedText ? (
                             <div className="active-speech-banner">
+                                <span className="banner-label">Sofia</span>
                                 <p>"{displayedText}"</p>
                             </div>
-                        )}
+                        ) : userText ? (
+                            <div className="active-speech-banner user-banner">
+                                <span className="banner-label">You</span>
+                                <p>"{userText}"</p>
+                            </div>
+                        ) : null}
 
                         {/* Scrollable Conversation Stream */}
                         <div className="side-messages-container">
-                            {messages.length === 0 && !displayedText ? (
+                            {messages.length === 0 && !displayedText && !userText ? (
                                 <div className="transcript-empty-state">
                                     <span className="empty-icon">🎧</span>
-                                    <p>Transcript will appear here in real time as you talk with Sofia.</p>
+                                    <p>Live transcript will stream here as you and Sofia speak.</p>
                                 </div>
                             ) : (
                                 messages.map((m) => {
