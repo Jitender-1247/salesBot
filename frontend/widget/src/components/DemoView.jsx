@@ -23,10 +23,12 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
     const audioPlayerRef = useRef(null);
     const timerRef = useRef(null);
     const typingRef = useRef(null);
+    const audioReceivedRef = useRef(false);
+    const messagesEndRef = useRef(null);
+
     const [displayedText, setDisplayedText] = useState('');
-    const [audioReceived, setAudioReceived] = useState(false);
-    const [micVolume, setMicVolume] = useState(0); // live mic level 0-1
-    const [isAvatarReady, setIsAvatarReady] = useState(false); // waits for live 3D avatar to attach
+    const [micVolume, setMicVolume] = useState(0);
+    const [isAvatarReady, setIsAvatarReady] = useState(false);
 
     const genId = () => `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
@@ -35,6 +37,11 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
         timerRef.current = setInterval(() => setDuration(d => d + 1), 1000);
         return () => clearInterval(timerRef.current);
     }, []);
+
+    // Auto scroll messages container
+    useEffect(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [messages, displayedText, userText]);
 
     // Socket event listeners
     useEffect(() => {
@@ -46,12 +53,12 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
                 setAgentState('speaking');
                 setIsSpeaking(true);
 
-                // ── Word-by-word typewriter effect ──
+                // Word-by-word typewriter effect
                 clearInterval(typingRef.current);
                 setDisplayedText('');
 
                 const words = data.text.split(' ');
-                const msPerWord = 400;
+                const msPerWord = 350;
                 let wordIdx = 0;
 
                 typingRef.current = setInterval(() => {
@@ -86,10 +93,9 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
         };
 
         const onAgentAudio = (audioData) => {
-            // Real ElevenLabs/OpenAI audio arrived — cancel browser TTS and play proper audio
             if (!audioReceivedRef.current) {
                 audioReceivedRef.current = true;
-                window.speechSynthesis?.cancel(); // stop browser TTS immediately
+                window.speechSynthesis?.cancel();
             }
             const blob = new Blob([audioData], { type: 'audio/mp3' });
             const url = URL.createObjectURL(blob);
@@ -97,7 +103,6 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
         };
 
         const onAgentMessage = (data) => {
-            // If the backend sends a structured message
             if (data.role && data.content) {
                 setMessages(prev => [...prev, {
                     id: genId(),
@@ -129,7 +134,6 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
     useEffect(() => {
         if (agentText) {
             setMessages(prev => {
-                // Update if last message is from agent, otherwise add new
                 const last = prev[prev.length - 1];
                 if (last && last.role === 'agent' && last._updating) {
                     return prev.map((m, i) =>
@@ -159,7 +163,6 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
         }
     }, [userText]);
 
-    // Handle recording complete — send audio blob to server
     const handleRecordingComplete = useCallback((audioBlob) => {
         if (!socket || !callData) return;
 
@@ -188,9 +191,7 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
         setAgentState('listening');
     }, []);
 
-    const handleRecordingStop = useCallback(() => {
-        // State will transition to 'processing' when the server responds
-    }, []);
+    const handleRecordingStop = useCallback(() => { }, []);
 
     const handleInterrupt = useCallback(() => {
         audioPlayerRef.current?.stop();
@@ -214,7 +215,7 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
 
     return (
         <div className="app-container">
-            {/* Fullscreen Loading Screen — waits for Live 3D Avatar to connect */}
+            {/* Fullscreen Loading Overlay — waits for Live 3D Avatar to connect */}
             {!isAvatarReady && (
                 <div className="demo-loading-overlay">
                     <div className="demo-loading-card">
@@ -250,9 +251,10 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
                 </div>
             </header>
 
-            {/* Main Content */}
+            {/* Main Content — Left Browser View, Right Side Panel with Avatar & Transcript */}
             <main className="main-content">
-                {/* Demo Panel (left — screen + avatar overlay) */}
+
+                {/* Left Column: Product Screen View */}
                 <div className="glass-card demo-panel">
                     <div className="screen-view">
                         {/* Agent Status Badge */}
@@ -269,31 +271,7 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
                         ) : (
                             <div className="screen-placeholder">
                                 <div className="screen-placeholder-icon">🖥️</div>
-                                <p>Loading demo screen...</p>
-                            </div>
-                        )}
-
-                        {/* User transcript badge (top right) */}
-                        {userText && (
-                            <div className="user-transcript-badge">
-                                <p>"{userText}"</p>
-                            </div>
-                        )}
-
-                        {/* Avatar overlay — Keyframe real-time WebRTC avatar */}
-                        <div className="avatar-overlay">
-                            <KeyframeAvatar
-                                livekitUrl={callData?.livekitUrl || livekitUrl}
-                                token={callData?.visitorToken || visitorToken}
-                                speaking={isSpeaking}
-                                onReady={handleAvatarReady}
-                            />
-                        </div>
-
-                        {/* Agent transcript overlay — word-by-word as Sofia speaks */}
-                        {displayedText && (
-                            <div className="agent-transcript-overlay">
-                                <p>{displayedText}</p>
+                                <p>Loading live product screen...</p>
                             </div>
                         )}
                     </div>
@@ -321,16 +299,73 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
                     {/* Live user transcript strip with mic level bar */}
                     <div className={`user-transcript-strip ${userText ? 'visible' : ''}`}>
                         <span className="transcript-mic">🎤</span>
-                        {/* Mic level bar — always shows, pulses with voice */}
                         <div className="mic-level-bar-track">
                             <div
                                 className="mic-level-bar-fill"
                                 style={{ width: `${Math.min(100, micVolume * 1800)}%` }}
                             />
                         </div>
-                        <span className="transcript-text">{userText || 'Just speak — always on'}</span>
+                        <span className="transcript-text">{userText || 'Speak freely — mic is live'}</span>
                     </div>
                 </div>
+
+                {/* Right Column: Avatar on Top, Live Transcript Below */}
+                <div className="side-panel">
+                    {/* Top: Avatar Video Card */}
+                    <div className="side-avatar-card glass-card">
+                        <div className="side-avatar-header">
+                            <span className="side-avatar-dot" />
+                            <span className="side-avatar-title">Sofia • AI Avatar</span>
+                        </div>
+                        <div className="side-avatar-video-wrapper">
+                            <KeyframeAvatar
+                                livekitUrl={callData?.livekitUrl || livekitUrl}
+                                token={callData?.visitorToken || visitorToken}
+                                speaking={isSpeaking}
+                                onReady={handleAvatarReady}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Bottom: Live Transcript & Message Stream */}
+                    <div className="side-transcript-card glass-card">
+                        <div className="side-transcript-header">
+                            <span>💬 Live Transcript</span>
+                            {agentState === 'speaking' && <span className="speaking-tag">Speaking...</span>}
+                        </div>
+
+                        {/* Real-time word-by-word active speech banner */}
+                        {displayedText && (
+                            <div className="active-speech-banner">
+                                <p>"{displayedText}"</p>
+                            </div>
+                        )}
+
+                        {/* Scrollable Conversation Stream */}
+                        <div className="side-messages-container">
+                            {messages.length === 0 && !displayedText ? (
+                                <div className="transcript-empty-state">
+                                    <span className="empty-icon">🎧</span>
+                                    <p>Transcript will appear here in real time as you talk with Sofia.</p>
+                                </div>
+                            ) : (
+                                messages.map((m) => {
+                                    const isUser = m.role === 'user';
+                                    return (
+                                        <div key={m.id} className={`transcript-bubble-row ${isUser ? 'user' : 'agent'}`}>
+                                            <div className="transcript-bubble">
+                                                <span className="bubble-author">{isUser ? 'You' : 'Sofia'}</span>
+                                                <p className="bubble-text">{m.content}</p>
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            )}
+                            <div ref={messagesEndRef} />
+                        </div>
+                    </div>
+                </div>
+
             </main>
         </div>
     );
