@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
+import BackButton from '../components/BackButton';
 import api from '../api';
 
 export default function CallDetail() {
@@ -92,11 +93,7 @@ export default function CallDetail() {
                 {/* Header */}
                 <div className="flex items-center justify-between">
                     <div>
-                        <div className="flex items-center gap-2 mb-2 text-xs font-semibold" style={{ color: 'var(--text-sub)' }}>
-                            <Link to="/" className="hover:text-white">Dashboard</Link>
-                            <span>→</span>
-                            <span style={{ color: 'var(--text-main)' }}>Session Detail</span>
-                        </div>
+                        <BackButton to="/" label="Dashboard" />
                         <h1 className="text-3xl font-extrabold tracking-tight" style={{ color: 'var(--text-main)', fontFamily: 'Outfit, sans-serif' }}>
                             {call.prospectName || 'Anonymous Visitor'}
                         </h1>

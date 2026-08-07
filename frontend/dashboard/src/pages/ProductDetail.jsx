@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
+import BackButton from '../components/BackButton';
 import api from '../api';
 
 export default function ProductDetail() {
@@ -109,11 +110,7 @@ export default function ProductDetail() {
                 {/* Header */}
                 <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 mb-2 text-xs font-semibold" style={{ color: 'var(--text-sub)' }}>
-                            <Link to="/products" className="hover:text-white">Products</Link>
-                            <span>→</span>
-                            <span style={{ color: 'var(--text-main)' }}>{product.name}</span>
-                        </div>
+                        <BackButton to="/products" label="Products" />
                         <h1 className="text-3xl font-extrabold tracking-tight" style={{ color: 'var(--text-main)', fontFamily: 'Outfit, sans-serif' }}>
                             {product.name}
                         </h1>

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
+import BackButton from '../components/BackButton';
 import api from '../api';
 
 export default function Embed() {
@@ -46,13 +47,7 @@ export default function Embed() {
             <main className="flex-1 min-w-0 p-8 overflow-y-auto animate-fade-in relative z-10 space-y-6">
 
                 <div>
-                    <div className="flex items-center gap-2 mb-2 text-xs font-semibold" style={{ color: 'var(--text-sub)' }}>
-                        <Link to="/products" className="hover:text-white">Products</Link>
-                        <span>→</span>
-                        <Link to={`/products/${id}`} className="hover:text-white">{product?.name}</Link>
-                        <span>→</span>
-                        <span style={{ color: 'var(--text-main)' }}>Embed Code</span>
-                    </div>
+                    <BackButton to={`/products/${id}`} label={product?.name || 'Product'} />
                     <h1 className="text-3xl font-extrabold tracking-tight" style={{ color: 'var(--text-main)', fontFamily: 'Outfit, sans-serif' }}>
                         Embed Widget Code
                     </h1>

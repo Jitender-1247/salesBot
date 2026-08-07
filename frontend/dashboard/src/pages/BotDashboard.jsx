@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
+import BackButton from '../components/BackButton';
 import api from '../api';
 
 const BOT_INFO = {
@@ -166,9 +167,7 @@ export default function BotDashboard() {
                 {/* Header */}
                 <div className="flex items-center justify-between">
                     <div>
-                        <Link to={`/bots/${botType}`} className="text-xs font-semibold mb-2 inline-block" style={{ color: 'var(--text-sub)' }}>
-                            ← {bot.name}
-                        </Link>
+                        <BackButton to={`/bots/${botType}`} label={bot.name} />
                         <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-lg font-bold text-white shadow-lg"
                                 style={{ background: 'var(--accent-gradient)' }}>
