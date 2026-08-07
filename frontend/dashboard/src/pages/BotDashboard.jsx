@@ -8,7 +8,6 @@ const BOT_INFO = {
 };
 
 const COLORS = ['#8b5cf6', '#10b981', '#f59e0b', '#f43f5e', '#38bdf8', '#06b6d4'];
-const BAR_MAX_HEIGHT = 80;
 
 export default function BotDashboard() {
     const { botType, productId } = useParams();
@@ -23,6 +22,7 @@ export default function BotDashboard() {
     const [search, setSearch] = useState('');
     const [filterQualified, setFilterQualified] = useState('all');
     const [filterLanguage, setFilterLanguage] = useState('all');
+    const [hoveredBar, setHoveredBar] = useState(null);
 
     useEffect(() => {
         if (!bot) return;
@@ -105,9 +105,29 @@ export default function BotDashboard() {
         </div>
     );
 
-    const maxCount = analytics?.callsPerDay
-        ? Math.max(...analytics.callsPerDay.map(d => d.count), 1)
-        : 1;
+    const daysData = analytics?.callsPerDay || [];
+    const maxCount = Math.max(...daysData.map(d => d.count), 1);
+    const peakDay = daysData.reduce((max, d) => (d.count > (max?.count || 0) ? d : max), null);
+
+    // Calculate SVG Area Path coordinates
+    const chartWidth = 480;
+    const chartHeight = 110;
+    const points = daysData.map((d, i) => {
+        const x = (i / Math.max(daysData.length - 1, 1)) * (chartWidth - 40) + 20;
+        const y = chartHeight - (d.count / maxCount) * (chartHeight - 30) - 15;
+        return { x, y, count: d.count, date: d.date };
+    });
+
+    const pathD = points.length > 1
+        ? points.reduce((acc, p, i, a) => {
+            if (i === 0) return `M ${p.x} ${p.y}`;
+            const prev = a[i - 1];
+            const cx = (prev.x + p.x) / 2;
+            return `${acc} C ${cx} ${prev.y}, ${cx} ${p.y}, ${p.x} ${p.y}`;
+        }, '')
+        : '';
+
+    const areaD = pathD ? `${pathD} L ${points[points.length - 1]?.x || 0} ${chartHeight} L ${points[0]?.x || 0} ${chartHeight} Z` : '';
 
     const statCards = [
         { label: 'Total Sessions', value: analytics?.totalCalls || 0, icon: '📞', color: '#c4b5fd' },
@@ -167,7 +187,7 @@ export default function BotDashboard() {
                     </button>
                 </div>
 
-                {/* Stat Cards Grid with Distinct Borders & Shadows */}
+                {/* Stat Cards Grid */}
                 <div className="grid grid-cols-6 gap-4">
                     {statCards.map((stat) => (
                         <div key={stat.label} className="ultra-card p-5">
@@ -183,34 +203,105 @@ export default function BotDashboard() {
                     ))}
                 </div>
 
-                {/* Charts Grid */}
+                {/* Enhanced Interactive Charts Grid */}
                 <div className="grid grid-cols-4 gap-6">
-                    {/* Calls per day chart */}
-                    <div className="col-span-2 ultra-card p-6">
-                        <div className="flex items-center justify-between mb-6">
-                            <h2 className="font-bold text-sm" style={{ color: 'var(--text-main)' }}>Sessions — Last 7 Days</h2>
-                            <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full"
+
+                    {/* Illuminated Area & Bar Chart */}
+                    <div className="col-span-2 ultra-card p-6 flex flex-col justify-between">
+                        <div className="flex items-center justify-between mb-4">
+                            <div>
+                                <h2 className="font-bold text-sm" style={{ color: 'var(--text-main)' }}>Sessions — Last 7 Days</h2>
+                                {peakDay && peakDay.count > 0 && (
+                                    <p className="text-[11px] font-semibold text-purple-400 mt-0.5">
+                                        🔥 Peak Activity: {peakDay.date.split(',')[0]} ({peakDay.count} sessions)
+                                    </p>
+                                )}
+                            </div>
+                            <span className="text-[11px] font-semibold px-3 py-1 rounded-full"
                                 style={{ background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-sub)' }}>
-                                Volume History
+                                Live Curve & Volume
                             </span>
                         </div>
-                        <div className="flex items-end justify-between gap-3 h-36 pt-2">
-                            {analytics?.callsPerDay?.map((day, i) => (
-                                <div key={i} className="flex-1 flex flex-col items-center gap-2">
-                                    <span className="text-[11px] font-bold font-mono" style={{ color: 'var(--text-sub)' }}>{day.count}</span>
-                                    <div className="w-full rounded-t-lg transition-all duration-300 hover:opacity-80"
-                                        style={{
-                                            height: `${Math.max((day.count / maxCount) * BAR_MAX_HEIGHT, day.count > 0 ? 10 : 3)}px`,
-                                            opacity: day.count === 0 ? 0.25 : 1,
-                                            background: 'var(--accent-gradient)',
-                                            boxShadow: day.count > 0 ? 'var(--shadow-glow)' : 'none',
-                                        }}
+
+                        {/* Interactive SVG Area Curve */}
+                        <div className="relative w-full h-[120px] mb-2">
+                            <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="w-full h-full overflow-visible">
+                                <defs>
+                                    <linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="0%" stopColor="#8b5cf6" stopOpacity="0.45" />
+                                        <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.0" />
+                                    </linearGradient>
+                                    <linearGradient id="strokeGradient" x1="0" y1="0" x2="1" y2="0">
+                                        <stop offset="0%" stopColor="#ec4899" />
+                                        <stop offset="50%" stopColor="#8b5cf6" />
+                                        <stop offset="100%" stopColor="#06b6d4" />
+                                    </linearGradient>
+                                </defs>
+
+                                {/* Glowing Area Fill */}
+                                {areaD && <path d={areaD} fill="url(#areaGradient)" />}
+
+                                {/* Smooth Spline Curve */}
+                                {pathD && (
+                                    <path
+                                        d={pathD}
+                                        fill="none"
+                                        stroke="url(#strokeGradient)"
+                                        strokeWidth="3.5"
+                                        strokeLinecap="round"
+                                        style={{ filter: 'drop-shadow(0 0 8px rgba(139, 92, 246, 0.6))' }}
                                     />
-                                    <span className="text-[11px] font-bold text-center leading-tight" style={{ color: 'var(--text-sub)' }}>
-                                        {day.date.split(',')[0]}
-                                    </span>
-                                </div>
-                            ))}
+                                )}
+
+                                {/* Interactive Data Nodes */}
+                                {points.map((p, i) => (
+                                    <g key={i} className="group cursor-pointer" onMouseEnter={() => setHoveredBar(i)} onMouseLeave={() => setHoveredBar(null)}>
+                                        <circle
+                                            cx={p.x}
+                                            cy={p.y}
+                                            r={hoveredBar === i ? 6.5 : 4}
+                                            fill="#ffffff"
+                                            stroke="#8b5cf6"
+                                            strokeWidth="3"
+                                            className="transition-all duration-200"
+                                            style={{ filter: 'drop-shadow(0 0 6px #8b5cf6)' }}
+                                        />
+                                    </g>
+                                ))}
+                            </svg>
+                        </div>
+
+                        {/* Dual Bar Layout with Date Labels */}
+                        <div className="flex items-end justify-between gap-3 pt-2 border-t" style={{ borderColor: 'var(--border-light)' }}>
+                            {daysData.map((day, i) => {
+                                const isHovered = hoveredBar === i;
+                                return (
+                                    <div
+                                        key={i}
+                                        className="flex-1 flex flex-col items-center gap-1.5 cursor-pointer group"
+                                        onMouseEnter={() => setHoveredBar(i)}
+                                        onMouseLeave={() => setHoveredBar(null)}
+                                    >
+                                        <span className={`text-[11px] font-bold font-mono transition-transform ${isHovered ? 'scale-125 text-purple-400' : ''}`}
+                                            style={{ color: day.count > 0 ? 'var(--text-main)' : 'var(--text-muted)' }}>
+                                            {day.count}
+                                        </span>
+                                        <div
+                                            className="w-full rounded-t-lg transition-all duration-300"
+                                            style={{
+                                                height: `${Math.max((day.count / maxCount) * 55, day.count > 0 ? 8 : 3)}px`,
+                                                opacity: day.count === 0 ? 0.2 : isHovered ? 1 : 0.85,
+                                                background: isHovered ? 'linear-gradient(180deg, #ec4899 0%, #8b5cf6 100%)' : 'var(--accent-gradient)',
+                                                boxShadow: isHovered ? '0 0 15px rgba(236,72,153,0.5)' : day.count > 0 ? '0 0 10px rgba(139,92,246,0.2)' : 'none',
+                                            }}
+                                        />
+                                        <span className={`text-[11px] font-bold text-center leading-tight transition-colors ${isHovered ? 'text-white' : ''}`}
+                                            style={{ color: 'var(--text-sub)' }}>
+                                            {day.date.split(',')[0]}
+                                        </span>
+                                    </div>
+                                );
+                            })}
                         </div>
                     </div>
 
@@ -242,17 +333,29 @@ export default function BotDashboard() {
                         )}
                     </div>
 
-                    {/* Visitor satisfaction */}
-                    <div className="ultra-card p-6">
-                        <h2 className="font-bold text-sm mb-6" style={{ color: 'var(--text-main)' }}>Visitor Sentiment</h2>
+                    {/* Visitor Sentiment (Measured by Groq Llama 3.3 70B AI) */}
+                    <div className="ultra-card p-6 flex flex-col justify-between">
+                        <div>
+                            <div className="flex items-center justify-between mb-2">
+                                <h2 className="font-bold text-sm" style={{ color: 'var(--text-main)' }}>Visitor Sentiment</h2>
+                                <span className="text-[10px] font-bold text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-full border border-purple-500/20"
+                                    title="Sentiment is analyzed automatically from the conversation transcript by Groq Llama 3.3 70B AI model at the end of each session.">
+                                    🤖 Groq AI Sensed
+                                </span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 mb-5 leading-tight">
+                                Evaluated from real-time visitor speech & responses
+                            </p>
+                        </div>
+
                         {!analytics?.satisfaction || analytics.totalCalls === 0 ? (
                             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>No data captured yet</p>
                         ) : (
                             <div className="space-y-4">
                                 {[
-                                    { key: 'positive', label: '🙂 Positive', color: '#10b981' },
-                                    { key: 'neutral', label: '😐 Neutral', color: '#8b5cf6' },
-                                    { key: 'negative', label: '🙁 Negative', color: '#f43f5e' },
+                                    { key: 'positive', label: '🙂 Positive (Engaged)', color: '#10b981' },
+                                    { key: 'neutral', label: '😐 Neutral (Polite)', color: '#8b5cf6' },
+                                    { key: 'negative', label: '🙁 Negative (Confused)', color: '#f43f5e' },
                                     { key: 'unknown', label: '❓ Unclear', color: '#64748b' },
                                 ].map(({ key, label, color }) => {
                                     const count = analytics.satisfaction[key] || 0;
@@ -314,7 +417,7 @@ export default function BotDashboard() {
                     filteredCalls.length === 0 ? (
                         <div className="ultra-card p-16 text-center">
                             <p className="text-4xl mb-4">📞</p>
-                            <h3 className="text-base font-bold text-white mb-2" style={{ color: 'var(--text-main)' }}>No conversations found</h3>
+                            <h3 className="text-base font-bold mb-2" style={{ color: 'var(--text-main)' }}>No conversations found</h3>
                             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Try adjusting your search query or filters</p>
                         </div>
                     ) : (
@@ -369,7 +472,7 @@ export default function BotDashboard() {
                         <div className="ultra-card p-16 text-center">
                             <p className="text-4xl mb-4">🎯</p>
                             <h3 className="text-base font-bold mb-2" style={{ color: 'var(--text-main)' }}>No leads captured yet</h3>
-                            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Leads will automatically appear when visitors leave their contact info during demo sessions</p>
+                            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Leads will automatically appear when visitors leave contact info</p>
                         </div>
                     ) : (
                         <div className="space-y-3">
