@@ -79,38 +79,52 @@ export default function App() {
         return (
             <div className="landing-screen">
                 <div className="landing-card">
-                    <div className="landing-avatar">🤖</div>
-                    <h2>Hi! I'm Sofia</h2>
-                    <p className="subtitle">Your AI demo specialist</p>
+                    {/* Glowing Avatar Header */}
+                    <div className="landing-avatar-wrapper">
+                        <div className="landing-avatar-glow" />
+                        <div className="landing-avatar">👩‍💼</div>
+                        <div className="landing-online-badge">
+                            <span className="online-dot" /> Live AI
+                        </div>
+                    </div>
+
+                    <h2>Hi, I'm Sofia</h2>
+                    <p className="subtitle">Your AI Demo Specialist</p>
                     <p className="description">
-                        I'll give you a live, personalized tour of this product.
-                        Ask me anything — I'll navigate and explain in real time.
+                        Experience a real-time, interactive tour of this product.
+                        Ask me anything — I'll explain features and navigate live for you.
                     </p>
 
                     {/* Pre-session Lead Collection Form */}
                     <form onSubmit={startDemo} className="landing-form">
                         <div className="form-group">
-                            <label>Your Name</label>
-                            <input
-                                type="text"
-                                placeholder="John Smith"
-                                value={userForm.name}
-                                onChange={e => setUserForm({ ...userForm, name: e.target.value })}
-                                required
-                            />
+                            <label>Full Name</label>
+                            <div className="input-with-icon">
+                                <span className="input-icon">👤</span>
+                                <input
+                                    type="text"
+                                    placeholder="John Smith"
+                                    value={userForm.name}
+                                    onChange={e => setUserForm({ ...userForm, name: e.target.value })}
+                                    required
+                                />
+                            </div>
                         </div>
                         <div className="form-group">
-                            <label>Your Email</label>
-                            <input
-                                type="email"
-                                placeholder="you@company.com"
-                                value={userForm.email}
-                                onChange={e => setUserForm({ ...userForm, email: e.target.value })}
-                                required
-                            />
+                            <label>Work Email</label>
+                            <div className="input-with-icon">
+                                <span className="input-icon">✉️</span>
+                                <input
+                                    type="email"
+                                    placeholder="john@company.com"
+                                    value={userForm.email}
+                                    onChange={e => setUserForm({ ...userForm, email: e.target.value })}
+                                    required
+                                />
+                            </div>
                         </div>
 
-                        {error && <div className="landing-error">{error}</div>}
+                        {error && <div className="landing-error">⚠️ {error}</div>}
 
                         <button
                             type="submit"
@@ -122,9 +136,11 @@ export default function App() {
                         </button>
                     </form>
 
-                    <p className="landing-footer">
-                        Takes about 2-5 minutes • Instant access
-                    </p>
+                    <div className="landing-trust-bar">
+                        <span>⚡ 2-5 Min Demo</span>
+                        <span>•</span>
+                        <span>🔒 100% Free & Private</span>
+                    </div>
                 </div>
             </div>
         );
@@ -134,9 +150,19 @@ export default function App() {
     if (screen === 'loading') {
         return (
             <div className="loading-screen">
-                <div className="loading-spinner" />
-                <p>Starting your demo...</p>
-                <p className="loading-sub">Logging into product...</p>
+                <div className="loading-card">
+                    <div className="loading-avatar-icon">
+                        <div className="pulsing-glow" />
+                        👩‍💼
+                    </div>
+                    <h2>Starting Your Live Demo</h2>
+                    <p className="loading-sub">Connecting to AI Demo Specialist & launching browser...</p>
+                    <div className="loading-spinner" />
+                    <div className="loading-steps">
+                        <span className="step-badge">1. Initializing Sofia AI</span>
+                        <span className="step-badge">2. Connecting Video & Audio</span>
+                    </div>
+                </div>
             </div>
         );
     }
@@ -157,9 +183,14 @@ export default function App() {
     if (screen === 'end') {
         return (
             <div className="thankyou-screen">
-                <div className="thankyou-icon">🎉</div>
-                <h2>Thanks for the demo!</h2>
-                <p>Our team will be in touch soon.</p>
+                <div className="thankyou-card">
+                    <div className="thankyou-icon">🎉</div>
+                    <h2>Thanks for the demo!</h2>
+                    <p>Sofia has logged your session. Our team will follow up with you shortly.</p>
+                    <button className="start-btn mt-6" onClick={() => setScreen('landing')}>
+                        🔄 Restart Demo
+                    </button>
+                </div>
             </div>
         );
     }
