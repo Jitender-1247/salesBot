@@ -87,19 +87,6 @@ export default function App() {
                         Ask me anything — I'll navigate and explain in real time.
                     </p>
 
-                    <div className="landing-features">
-                        {[
-                            { icon: '🎙️', text: 'Voice powered — just speak naturally' },
-                            { icon: '🌐', text: 'Works in any language' },
-                            { icon: '⚡', text: 'Live navigation — I show, not just tell' },
-                        ].map((item, i) => (
-                            <div key={i} className="landing-feature">
-                                <span className="feature-icon">{item.icon}</span>
-                                <span className="feature-text">{item.text}</span>
-                            </div>
-                        ))}
-                    </div>
-
                     {/* Pre-session Lead Collection Form */}
                     <form onSubmit={startDemo} className="landing-form">
                         <div className="form-group">
@@ -109,6 +96,7 @@ export default function App() {
                                 placeholder="John Smith"
                                 value={userForm.name}
                                 onChange={e => setUserForm({ ...userForm, name: e.target.value })}
+                                required
                             />
                         </div>
                         <div className="form-group">
@@ -118,12 +106,17 @@ export default function App() {
                                 placeholder="you@company.com"
                                 value={userForm.email}
                                 onChange={e => setUserForm({ ...userForm, email: e.target.value })}
+                                required
                             />
                         </div>
 
                         {error && <div className="landing-error">{error}</div>}
 
-                        <button type="submit" className="start-btn">
+                        <button
+                            type="submit"
+                            className="start-btn"
+                            disabled={!userForm.name.trim() || !userForm.email.trim()}
+                        >
                             <span>🚀</span>
                             <span>Start Live Demo</span>
                         </button>

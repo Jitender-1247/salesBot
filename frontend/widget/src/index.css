@@ -1162,6 +1162,13 @@ body::before {
   transform: translateY(0);
 }
 
+.start-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
 .landing-footer {
   margin-top: 16px;
   font-size: 0.72rem;
