@@ -23,7 +23,7 @@ export default function Sidebar() {
     };
 
     return (
-        <aside className="w-[260px] min-h-screen flex flex-col flex-shrink-0 relative z-20 transition-all duration-300"
+        <aside className="w-[260px] h-screen sticky top-0 flex flex-col flex-shrink-0 relative z-20 transition-all duration-300"
             style={{
                 background: 'var(--bg-sidebar)',
                 backdropFilter: 'blur(24px)',
@@ -32,7 +32,7 @@ export default function Sidebar() {
             }}
         >
             {/* Brand Header */}
-            <div className="px-6 py-6 border-b" style={{ borderColor: 'var(--border-light)' }}>
+            <div className="px-6 py-6 border-b flex-shrink-0" style={{ borderColor: 'var(--border-light)' }}>
                 <Link to="/" className="flex items-center gap-3 no-underline group">
                     <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-xl shadow-lg transition-transform duration-200 group-hover:scale-105"
                         style={{
@@ -55,7 +55,7 @@ export default function Sidebar() {
             </div>
 
             {/* Main Navigation */}
-            <nav className="flex-1 px-4 py-6 space-y-2">
+            <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
                 <div className="px-3 mb-2 text-[10px] font-extrabold uppercase tracking-wider"
                     style={{ color: 'var(--text-muted)' }}>
                     Navigation
@@ -110,7 +110,7 @@ export default function Sidebar() {
             </nav>
 
             {/* User Info Footer */}
-            <div className="p-4 border-t" style={{ borderColor: 'var(--border-light)' }}>
+            <div className="p-4 border-t flex-shrink-0" style={{ borderColor: 'var(--border-light)' }}>
                 <div className="flex items-center gap-3 p-3 rounded-2xl"
                     style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-light)' }}>
                     <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-xs font-bold shadow-md"
