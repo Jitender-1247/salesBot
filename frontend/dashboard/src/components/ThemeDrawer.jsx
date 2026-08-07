@@ -7,13 +7,6 @@ export default function ThemeDrawer() {
 
     const activeThemeObj = themes.find(t => t.id === theme) || themes[0];
 
-    const themeDescriptions = {
-        cyberpunk: 'Multi-color neon gradient borders, electric cyan/magenta glow, futuristic dark glass',
-        titanium: 'Metallic slate texture, specular inset highlights, clean luxury layout',
-        light: 'Pure snow-white layout, crisp drop shadows, high contrast text & purple accents',
-        supabase: 'Deep emerald translucent glass, neon green status badges, mint highlights',
-    };
-
     return (
         <>
             {/* Sidebar Trigger Button */}
@@ -26,8 +19,8 @@ export default function ThemeDrawer() {
                     color: 'var(--text-main)',
                 }}
             >
-                <div className="flex items-center gap-2 truncate">
-                    <span>{activeThemeObj.icon}</span>
+                <div className="flex items-center gap-2.5 truncate">
+                    <span className="text-base">{activeThemeObj.icon}</span>
                     <span className="truncate">{activeThemeObj.name}</span>
                 </div>
                 <span className="text-[10px] opacity-60 font-mono">Theme 🎨</span>
@@ -44,7 +37,7 @@ export default function ThemeDrawer() {
 
                     {/* Drawer Content */}
                     <div
-                        className="relative w-full max-w-md min-h-screen p-6 flex flex-col justify-between shadow-2xl z-10 overflow-y-auto"
+                        className="relative w-full max-w-sm min-h-screen p-6 flex flex-col justify-between shadow-2xl z-10 overflow-y-auto"
                         style={{
                             background: 'var(--bg-sidebar)',
                             borderLeft: '1px solid var(--border-light)',
@@ -65,7 +58,7 @@ export default function ThemeDrawer() {
                                         <h2 className="text-base font-extrabold" style={{ fontFamily: 'Outfit, sans-serif' }}>
                                             Theme Studio
                                         </h2>
-                                        <p className="text-xs opacity-70">Customize dashboard visual theme</p>
+                                        <p className="text-xs opacity-70">Select your visual theme</p>
                                     </div>
                                 </div>
                                 <button
@@ -77,15 +70,15 @@ export default function ThemeDrawer() {
                                 </button>
                             </div>
 
-                            {/* Theme List */}
-                            <div className="space-y-4">
+                            {/* Minimal Theme Item List */}
+                            <div className="space-y-3">
                                 {themes.map((t) => {
                                     const isSelected = theme === t.id;
                                     return (
                                         <div
                                             key={t.id}
                                             onClick={() => setTheme(t.id)}
-                                            className={`p-4 rounded-2xl cursor-pointer transition-all duration-200 relative ${isSelected ? 'ring-2 ring-purple-500 scale-[1.02]' : 'hover:scale-[1.01]'
+                                            className={`p-4 rounded-xl cursor-pointer transition-all duration-200 flex items-center justify-between ${isSelected ? 'ring-2 ring-purple-500 scale-[1.02]' : 'hover:scale-[1.01]'
                                                 }`}
                                             style={{
                                                 background: 'var(--bg-surface)',
@@ -93,44 +86,25 @@ export default function ThemeDrawer() {
                                                 boxShadow: isSelected ? 'var(--shadow-glow)' : 'none',
                                             }}
                                         >
-                                            <div className="flex items-center justify-between mb-2">
-                                                <div className="flex items-center gap-2.5">
-                                                    <span className="text-xl">{t.icon}</span>
-                                                    <h3 className="text-sm font-bold">{t.name}</h3>
+                                            <div className="flex items-center gap-3">
+                                                <span className="text-xl">{t.icon}</span>
+                                                <div className="flex items-center gap-2">
+                                                    <h3 className="text-xs font-bold">{t.name}</h3>
                                                     {t.isDefault && (
-                                                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider"
+                                                        <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider"
                                                             style={{ background: 'rgba(139, 92, 246, 0.2)', color: '#c4b5fd' }}>
                                                             Default
                                                         </span>
                                                     )}
                                                 </div>
-                                                {isSelected && (
-                                                    <span className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white"
-                                                        style={{ background: 'var(--accent-gradient)' }}>
-                                                        ✓
-                                                    </span>
-                                                )}
                                             </div>
 
-                                            <p className="text-xs opacity-70 leading-relaxed mb-3">
-                                                {themeDescriptions[t.id]}
-                                            </p>
-
-                                            {/* Preview Color Swatches */}
-                                            <div className="flex items-center gap-2 pt-2 border-t" style={{ borderColor: 'var(--border-light)' }}>
-                                                <div className="w-5 h-5 rounded-full border border-white/20"
-                                                    style={{
-                                                        background: t.id === 'cyberpunk' ? '#06070c' : t.id === 'titanium' ? '#111216' : t.id === 'light' ? '#ffffff' : '#070f14'
-                                                    }} title="Background" />
-                                                <div className="w-5 h-5 rounded-full border border-white/20"
-                                                    style={{
-                                                        background: t.id === 'cyberpunk' ? '#ec4899' : t.id === 'titanium' ? '#38bdf8' : t.id === 'light' ? '#7c3aed' : '#10b981'
-                                                    }} title="Accent Color" />
-                                                <div className="w-5 h-5 rounded-full border border-white/20"
-                                                    style={{
-                                                        background: t.id === 'cyberpunk' ? '#06b6d4' : t.id === 'titanium' ? '#6366f1' : t.id === 'light' ? '#38bdf8' : '#06b6d4'
-                                                    }} title="Secondary Accent" />
-                                            </div>
+                                            {isSelected && (
+                                                <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-md"
+                                                    style={{ background: 'var(--accent-gradient)' }}>
+                                                    ✓
+                                                </span>
+                                            )}
                                         </div>
                                     );
                                 })}
@@ -141,7 +115,7 @@ export default function ThemeDrawer() {
                         <div className="pt-6 border-t mt-6 text-center" style={{ borderColor: 'var(--border-light)' }}>
                             <button
                                 onClick={() => setIsOpen(false)}
-                                className="ultra-btn-primary w-full py-3"
+                                className="ultra-btn-primary w-full py-3 text-xs"
                             >
                                 Apply Theme & Close
                             </button>

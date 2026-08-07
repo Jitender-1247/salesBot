@@ -3,10 +3,10 @@ import { createContext, useContext, useState, useEffect } from 'react';
 const ThemeContext = createContext();
 
 export const THEMES = [
-    { id: 'cyberpunk', name: 'Cyberpunk Neon', icon: '⚡', isDefault: true },
-    { id: 'titanium', name: 'Dark Titanium', icon: '🍏' },
+    { id: 'cyberpunk', name: 'Neon Prism', icon: '🔮', isDefault: true },
+    { id: 'titanium', name: 'Dark Titanium', icon: '💎' },
     { id: 'light', name: 'Luxury Light', icon: '☀️' },
-    { id: 'supabase', name: 'Emerald Glass', icon: '🟢' },
+    { id: 'supabase', name: 'Emerald Glass', icon: '❇️' },
 ];
 
 export function ThemeProvider({ children }) {
