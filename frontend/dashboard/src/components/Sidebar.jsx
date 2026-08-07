@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import ThemeSwitcher from './ThemeSwitcher';
+import ThemeDrawer from './ThemeDrawer';
 
 const navItems = [
     { path: '/', icon: '⚡', label: 'Bots' },
@@ -102,10 +102,10 @@ export default function Sidebar() {
 
                 <div className="pt-4 px-3 mb-2 text-[10px] font-extrabold uppercase tracking-wider"
                     style={{ color: 'var(--text-muted)' }}>
-                    Theme Switcher
+                    Theme Customizer
                 </div>
                 <div className="px-1">
-                    <ThemeSwitcher />
+                    <ThemeDrawer />
                 </div>
             </nav>
 
