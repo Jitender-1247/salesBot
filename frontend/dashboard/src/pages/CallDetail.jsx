@@ -85,6 +85,11 @@ export default function CallDetail() {
         </div>
     );
 
+    const botId = call.productId?._id || (typeof call.productId === 'string' ? call.productId : null);
+    const botName = call.productId?.name || 'SalesBot';
+    const backUrl = botId ? `/bots/salesbot/${botId}` : '/';
+    const backLabel = call.productId?.name ? call.productId.name : 'Dashboard';
+
     return (
         <div className="flex min-h-screen">
             <Sidebar />
@@ -93,7 +98,7 @@ export default function CallDetail() {
                 {/* Header */}
                 <div className="flex items-center justify-between">
                     <div>
-                        <BackButton to="/" label="Dashboard" />
+                        <BackButton to={backUrl} label={backLabel} />
                         <h1 className="text-3xl font-extrabold tracking-tight" style={{ color: 'var(--text-main)', fontFamily: 'Outfit, sans-serif' }}>
                             {call.prospectName || 'Anonymous Visitor'}
                         </h1>
@@ -111,7 +116,14 @@ export default function CallDetail() {
                     <div className="ultra-card p-6 flex flex-col gap-3">
                         <h2 className="font-bold text-sm mb-2" style={{ color: 'var(--text-main)' }}>Session Overview</h2>
                         {[
-                            { label: 'Product', val: call.productId?.name || 'Unknown' },
+                            {
+                                label: 'Product',
+                                val: botId ? (
+                                    <Link to={`/bots/salesbot/${botId}`} className="hover:underline font-bold" style={{ color: 'var(--accent-primary)' }}>
+                                        {call.productId?.name || 'Unknown'} →
+                                    </Link>
+                                ) : (call.productId?.name || 'Unknown')
+                            },
                             { label: 'Date', val: new Date(call.createdAt).toLocaleString() },
                             { label: 'Duration', val: formatDuration(call.duration || 0) },
                             { label: 'Status', val: <span className={`status-pill ${call.status === 'completed' ? 'status-pill-green' : 'status-pill-purple'}`}>{call.status}</span> },

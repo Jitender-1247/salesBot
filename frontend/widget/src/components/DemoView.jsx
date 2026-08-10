@@ -248,7 +248,8 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
                     </div>
                     <span className="header-timer">{formatDuration(duration)}</span>
                     <button className="end-demo-btn" onClick={onEnd} title="End Demo">
-                        end call 📵
+                        <span>📵</span>
+                        <span>End Call</span>
                     </button>
                 </div>
             </header>
