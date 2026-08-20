@@ -1,7 +1,111 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import AudioPlayer from './AudioPlayer';
 import AudioRecorder from './AudioRecorder';
-import KeyframeAvatar from './KeyframeAvatar';
+
+// Self-contained animated avatar — no external 3D service needed
+function LocalAvatar({ speaking, onReady }) {
+    const videoRef = useRef(null);
+
+    useEffect(() => {
+        // Fire onReady immediately — no waiting for external service
+        onReady?.();
+    }, [onReady]);
+
+    useEffect(() => {
+        const video = videoRef.current;
+        if (!video) return;
+        if (speaking) {
+            video.playbackRate = 1.1;
+            video.play().catch(() => {});
+        } else {
+            video.playbackRate = 0.8;
+            video.play().catch(() => {});
+        }
+    }, [speaking]);
+
+    return (
+        <div style={{
+            position: 'relative',
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'radial-gradient(ellipse at center, #1e1b4b 0%, #09090b 100%)',
+            overflow: 'hidden',
+        }}>
+            {/* Pulsing rings when speaking */}
+            {speaking && (
+                <>
+                    <div style={{
+                        position: 'absolute', width: '130px', height: '130px',
+                        borderRadius: '50%', border: '2px solid rgba(167,139,250,0.4)',
+                        animation: 'avatarPulse 1.5s ease-in-out infinite',
+                        pointerEvents: 'none',
+                    }} />
+                    <div style={{
+                        position: 'absolute', width: '155px', height: '155px',
+                        borderRadius: '50%', border: '2px solid rgba(167,139,250,0.2)',
+                        animation: 'avatarPulse 1.5s ease-in-out infinite 0.3s',
+                        pointerEvents: 'none',
+                    }} />
+                </>
+            )}
+
+            {/* Avatar circle with video */}
+            <div style={{
+                width: '100px', height: '100px', borderRadius: '50%',
+                overflow: 'hidden',
+                border: speaking
+                    ? '3px solid rgba(167,139,250,0.9)'
+                    : '3px solid rgba(167,139,250,0.35)',
+                boxShadow: speaking
+                    ? '0 0 24px rgba(124,58,237,0.6)'
+                    : '0 8px 32px rgba(124,58,237,0.25)',
+                transition: 'all 0.4s ease',
+                flexShrink: 0,
+                position: 'relative',
+            }}>
+                <video
+                    ref={videoRef}
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    src="https://cdn.coverr.co/videos/coverr-woman-working-at-desk-4222/1080p.mp4"
+                    onError={(e) => { e.target.style.display = 'none'; }}
+                />
+                {/* Emoji fallback if video fails */}
+                <div style={{
+                    position: 'absolute', inset: 0, display: 'flex',
+                    alignItems: 'center', justifyContent: 'center',
+                    fontSize: '3.2rem',
+                    background: 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)',
+                }}>👩‍💼</div>
+            </div>
+
+            {/* Name label */}
+            <div style={{
+                position: 'absolute', bottom: '10px',
+                display: 'flex', alignItems: 'center', gap: '5px',
+                fontSize: '0.7rem', fontWeight: 700, color: '#f3f4f6',
+                padding: '3px 10px',
+                background: 'rgba(10,10,18,0.75)',
+                borderRadius: '10px', backdropFilter: 'blur(8px)',
+                letterSpacing: '0.04em',
+            }}>
+                <span style={{
+                    width: '6px', height: '6px', borderRadius: '50%',
+                    background: speaking ? '#10b981' : '#6b7280',
+                    boxShadow: speaking ? '0 0 6px #10b981' : 'none',
+                    transition: 'all 0.3s',
+                }} />
+                Sofia
+            </div>
+        </div>
+    );
+}
 
 const stateLabels = {
     idle: 'Ready',
@@ -317,9 +421,7 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
                             <span className="side-avatar-title">Sofia • AI Avatar</span>
                         </div>
                         <div className="side-avatar-video-wrapper">
-                            <KeyframeAvatar
-                                livekitUrl={callData?.livekitUrl || livekitUrl}
-                                token={callData?.visitorToken || visitorToken}
+                            <LocalAvatar
                                 speaking={isSpeaking}
                                 onReady={handleAvatarReady}
                             />
