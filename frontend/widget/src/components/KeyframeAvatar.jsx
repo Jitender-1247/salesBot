@@ -28,6 +28,17 @@ function KeyframeVideoTrack({ speaking, onReady }) {
     // Filter to remote Keyframe avatar participant track
     const avatarTrack = tracks.find(t => !t.participant.isLocal && t.publication?.track);
 
+    // Fallback: trigger onReady after 2.5s if video track isn't received yet
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            if (onReady && !readyCalledRef.current) {
+                readyCalledRef.current = true;
+                onReady();
+            }
+        }, 2500);
+        return () => clearTimeout(timer);
+    }, [onReady]);
+
     useEffect(() => {
         if (!avatarTrack?.publication?.track || !videoRef.current) return;
 
@@ -77,7 +88,24 @@ export default function KeyframeAvatar({ livekitUrl, token, speaking, onReady })
         dynacast: false,
     }), []);
 
-    if (!livekitUrl || !token) return null;
+    useEffect(() => {
+        if (!livekitUrl || !token) {
+            const timer = setTimeout(() => {
+                onReady?.();
+            }, 1000);
+            return () => clearTimeout(timer);
+        }
+    }, [livekitUrl, token, onReady]);
+
+    if (!livekitUrl || !token) {
+        return (
+            <div className="avatar-3d-container" style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}>
+                <div className="avatar-fallback-wrapper" style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.05)' }}>
+                    <div className="landing-avatar" style={{ fontSize: '3rem' }}>👩‍💼</div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <LiveKitRoom

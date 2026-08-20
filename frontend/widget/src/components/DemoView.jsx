@@ -32,6 +32,14 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
 
     const genId = () => `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
+    // Safety fallback: auto-dismiss loading overlay after 4 seconds max if video track connection is delayed
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setIsAvatarReady(true);
+        }, 4000);
+        return () => clearTimeout(timer);
+    }, []);
+
     // Duration timer
     useEffect(() => {
         timerRef.current = setInterval(() => setDuration(d => d + 1), 1000);
