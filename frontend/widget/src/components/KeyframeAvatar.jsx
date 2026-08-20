@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useMemo } from 'react';
+import React, { useEffect, useRef, useMemo, useState } from 'react';
 import {
     LiveKitRoom,
     useTracks,
@@ -14,6 +14,7 @@ import { Track } from 'livekit-client';
 function KeyframeVideoTrack({ speaking, onReady }) {
     const videoRef = useRef(null);
     const readyCalledRef = useRef(false);
+    const [hasAttachedTrack, setHasAttachedTrack] = useState(false);
 
     // Auto-subscribe to remote participant tracks (Keyframe agent)
     const tracks = useTracks(
@@ -45,6 +46,7 @@ function KeyframeVideoTrack({ speaking, onReady }) {
         const track = avatarTrack.publication.track;
         console.log('[Keyframe] ✅ Live 3D Avatar Track connected from:', avatarTrack.participant.identity);
         track.attach(videoRef.current);
+        setHasAttachedTrack(true);
 
         if (onReady && !readyCalledRef.current) {
             readyCalledRef.current = true;
@@ -53,11 +55,12 @@ function KeyframeVideoTrack({ speaking, onReady }) {
 
         return () => {
             track.detach(videoRef.current);
+            setHasAttachedTrack(false);
         };
     }, [avatarTrack, onReady]);
 
     return (
-        <div className="avatar-3d-container" style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}>
+        <div className="avatar-3d-container" style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'radial-gradient(circle at center, #1e1b4b 0%, #09090b 100%)' }}>
             <video
                 ref={videoRef}
                 autoPlay
@@ -67,11 +70,22 @@ function KeyframeVideoTrack({ speaking, onReady }) {
                     height: '100%',
                     objectFit: 'cover',
                     borderRadius: 'inherit',
+                    display: hasAttachedTrack ? 'block' : 'none',
                 }}
             />
 
-            <div className="avatar-name-label" style={{ zIndex: 10 }}>
-                <span className={`avatar-name-dot ${speaking ? 'speaking' : ''}`} />
+            {!hasAttachedTrack && (
+                <div className={`avatar-animated-fallback ${speaking ? 'speaking' : ''}`} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                    <div className={`avatar-ring ${speaking ? 'active' : ''}`} />
+                    <div className={`avatar-ring avatar-ring-2 ${speaking ? 'active' : ''}`} />
+                    <div className="avatar-photo-wrapper" style={{ width: '90px', height: '90px', borderRadius: '50%', background: 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '3rem', border: '3px solid rgba(167, 139, 250, 0.4)', boxShadow: '0 8px 32px rgba(124, 58, 237, 0.3)' }}>
+                        👩‍💼
+                    </div>
+                </div>
+            )}
+
+            <div className="avatar-name-label" style={{ position: 'absolute', bottom: '10px', zIndex: 10 }}>
+                <span className={`avatar-name-dot ${speaking ? 'speaking' : ''}`} style={{ background: speaking ? '#10b981' : '#6b7280' }} />
                 Sofia
             </div>
         </div>
