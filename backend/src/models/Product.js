@@ -37,4 +37,7 @@ const productSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
+// Compound indexes for high-traffic query performance
+productSchema.index({ clientId: 1, explorationStatus: 1 });
+
 export default mongoose.model('Product', productSchema);

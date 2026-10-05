@@ -6,33 +6,53 @@ dotenv.config();
 export class Navigator {
     constructor() {
         this.browser = null;
+        this.context = null;
         this.page = null;
         this.room = null;
         this.screencastStopper = null;
+        this.isRemoteBrowser = false; // Track if using remote browser grid
     }
 
     async launch() {
-        this.browser = await chromium.launch({
-            headless: true,
-            args: [
-                '--disable-blink-features=AutomationControlled',
-                '--no-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-setuid-sandbox',
-                '--disable-infobars',
-            ]
-        });
-        const context = await this.browser.newContext({
+        const remoteEndpoint = process.env.BROWSER_WS_ENDPOINT;
+
+        if (remoteEndpoint) {
+            // ── Remote Browser Grid (Browserless / Chrome pool) ──
+            // Connects to a shared browser instance — does NOT launch a local Chromium process.
+            // This eliminates the 300–600MB RAM per session that local Chromium consumes.
+            this.browser = await chromium.connectOverCDP(remoteEndpoint);
+            this.isRemoteBrowser = true;
+            console.log(`🌐 Connected to remote browser grid: ${remoteEndpoint.substring(0, 50)}...`);
+        } else {
+            // ── Local Chromium (Dev/Single-server fallback) ──
+            this.browser = await chromium.launch({
+                headless: true,
+                args: [
+                    '--disable-blink-features=AutomationControlled',
+                    '--no-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-setuid-sandbox',
+                    '--disable-infobars',
+                ]
+            });
+            console.log('🌐 Browser launched locally (stealth mode)');
+        }
+
+        this.context = await this.browser.newContext({
             userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
             viewport: { width: 1280, height: 720 },
             locale: 'en-US',
         });
+
+        // Safety timeouts — prevent zombie pages from running forever
+        this.context.setDefaultTimeout(30000);
+        this.context.setDefaultNavigationTimeout(30000);
+
         // Remove the 'webdriver' property so bot-detection scripts won't find it
-        await context.addInitScript(() => {
+        await this.context.addInitScript(() => {
             Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         });
-        this.page = await context.newPage();
-        console.log('🌐 Browser launched (stealth mode)');
+        this.page = await this.context.newPage();
     }
 
     async connectToRoom(livekitUrl, token) {
@@ -576,11 +596,31 @@ export class Navigator {
             await this.room.disconnect();
             this.room = null;
         }
-        if (this.browser) {
-            await this.browser.close();
+        try {
+            if (this.isRemoteBrowser) {
+                // Remote browser grid: close only our context (not the shared browser)
+                // This frees our session without affecting other users' sessions
+                if (this.context) {
+                    await this.context.close().catch(() => {});
+                    this.context = null;
+                    this.page = null;
+                    console.log('🌐 Remote browser context closed');
+                }
+            } else {
+                // Local browser: close entire browser process
+                if (this.browser) {
+                    await this.browser.close().catch(() => {});
+                    this.browser = null;
+                    this.context = null;
+                    this.page = null;
+                    console.log('🌐 Local browser closed');
+                }
+            }
+        } catch (err) {
+            console.log('⚠️ Browser close error (non-critical):', err.message);
             this.browser = null;
+            this.context = null;
             this.page = null;
-            console.log('🌐 Browser closed');
         }
     }
 }

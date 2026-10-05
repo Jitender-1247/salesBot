@@ -35,7 +35,19 @@ const callSchema = new mongoose.Schema({
     enum: ['active', 'completed', 'failed'],
     default: 'active'
   },
+
+  // Why the session ended (for analytics & resource tracking)
+  endReason: {
+    type: String,
+    enum: ['user', 'max_duration', 'inactive', 'disconnect', 'error'],
+    default: 'user'
+  },
+
   createdAt: { type: Date, default: Date.now }
 });
+
+// Compound indexes for high-traffic query performance
+callSchema.index({ clientId: 1, status: 1, createdAt: -1 });
+callSchema.index({ productId: 1, createdAt: -1 });
 
 export default mongoose.model('Call', callSchema);

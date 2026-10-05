@@ -2,7 +2,9 @@ import Groq from 'groq-sdk';
 import dotenv from 'dotenv';
 dotenv.config();
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const groq = process.env.GROQ_API_KEY
+    ? new Groq({ apiKey: process.env.GROQ_API_KEY })
+    : null;
 
 /**
  * Combined call-outcome analysis — ONE Groq call that judges both:
@@ -31,6 +33,11 @@ export async function analyzeCallOutcome(transcript) {
         return { ...fallback, qualificationReason: 'Transcript too short to analyze' };
     }
 
+    if (!groq) {
+        console.log('⚠️ GROQ_API_KEY missing, skipping sentiment analysis');
+        return fallback;
+    }
+
     try {
         const systemPrompt = `You are analyzing a transcript of a conversation between an AI sales demo agent named Alex and a website visitor.
 
@@ -53,8 +60,9 @@ Respond with ONLY a JSON object (no markdown, no extra text):
   "qualificationReason": "one short sentence explaining why or why not"
 }`;
 
+        const model = process.env.GROQ_MODEL || 'qwen/qwen3.8-27b';
         const response = await groq.chat.completions.create({
-            model: 'llama-3.3-70b-versatile',
+            model,
             messages: [
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: transcript.slice(0, 4000) }

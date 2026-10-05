@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import AudioPlayer from './AudioPlayer';
 import AudioRecorder from './AudioRecorder';
+import KeyframeAvatar from './KeyframeAvatar';
 
 // Self-contained animated avatar — no external 3D service needed
 function LocalAvatar({ speaking, onReady }) {
@@ -133,6 +134,9 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
     const [displayedText, setDisplayedText] = useState('');
     const [micVolume, setMicVolume] = useState(0);
     const [isAvatarReady, setIsAvatarReady] = useState(false);
+    const [maxDuration, setMaxDuration] = useState(
+        parseInt(import.meta.env.VITE_MAX_SESSION_DURATION || '300')
+    ); // default 5 min, overridden by backend config
 
     const genId = () => `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
@@ -149,6 +153,16 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
         timerRef.current = setInterval(() => setDuration(d => d + 1), 1000);
         return () => clearInterval(timerRef.current);
     }, []);
+
+    // Listen for session config from backend (max duration, etc.)
+    useEffect(() => {
+        if (!socket) return;
+        const onConfig = (config) => {
+            if (config.maxDurationSeconds) setMaxDuration(config.maxDurationSeconds);
+        };
+        socket.on('session-config', onConfig);
+        return () => socket.off('session-config', onConfig);
+    }, [socket]);
 
     // Auto scroll messages container
     useEffect(() => {
@@ -358,7 +372,16 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
                         <span className="live-dot" />
                         Live Demo
                     </div>
-                    <span className="header-timer">{formatDuration(duration)}</span>
+                    {(() => {
+                        const remaining = Math.max(0, maxDuration - duration);
+                        const isUrgent = remaining <= 60;
+                        return (
+                            <span className={`header-timer ${isUrgent ? 'timer-urgent' : ''}`}
+                                  title={`${formatDuration(duration)} elapsed / ${formatDuration(maxDuration)} max`}>
+                                {formatDuration(remaining)} left
+                            </span>
+                        );
+                    })()}
                     <button className="end-demo-btn" onClick={onEnd} title="End Demo">
                         <span>📵</span>
                         <span>End Call</span>
@@ -421,10 +444,19 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
                             <span className="side-avatar-title">Sofia • AI Avatar</span>
                         </div>
                         <div className="side-avatar-video-wrapper">
-                            <LocalAvatar
-                                speaking={isSpeaking}
-                                onReady={handleAvatarReady}
-                            />
+                            {callData?.livekitUrl && callData?.visitorToken ? (
+                                <KeyframeAvatar
+                                    livekitUrl={callData.livekitUrl}
+                                    token={callData.visitorToken}
+                                    speaking={isSpeaking}
+                                    onReady={handleAvatarReady}
+                                />
+                            ) : (
+                                <LocalAvatar
+                                    speaking={isSpeaking}
+                                    onReady={handleAvatarReady}
+                                />
+                            )}
                         </div>
                     </div>
 

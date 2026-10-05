@@ -9,13 +9,20 @@ module.exports = {
       cwd: './backend',
       script: 'src/index.js',
       interpreter: 'node',
+      // Cluster mode: run multiple instances across CPU cores
+      // Requires Redis adapter for Socket.IO (set REDIS_URL)
+      instances: process.env.BACKEND_INSTANCES || 2,
+      exec_mode: 'cluster',
       env: {
         NODE_ENV: 'production',
-        PORT: 5000
+        PORT: 5000,
+        MAX_SESSION_DURATION_SECONDS: 300,
+        MAX_CONCURRENT_SESSIONS: 50,
       },
       watch: false,
       max_restarts: 10,
       restart_delay: 3000,
+      max_memory_restart: '1G', // Auto-restart if memory exceeds 1GB per worker
       log_date_format: 'YYYY-MM-DD HH:mm:ss'
     },
     {

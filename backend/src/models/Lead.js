@@ -28,4 +28,8 @@ const leadSchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now }
 });
 
+// Compound indexes for high-traffic query performance
+leadSchema.index({ clientId: 1, zohoSyncStatus: 1 });
+leadSchema.index({ productId: 1, createdAt: -1 });
+
 export default mongoose.model('Lead', leadSchema);

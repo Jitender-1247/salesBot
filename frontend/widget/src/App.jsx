@@ -11,6 +11,7 @@ export default function App() {
     const [error, setError] = useState('');
     const [screenImage, setScreenImage] = useState(null);
     const [userForm, setUserForm] = useState({ name: '', email: '' });
+    const [queueInfo, setQueueInfo] = useState(null); // { position, estimatedWaitSeconds }
 
     const params = new URLSearchParams(window.location.search);
     const productId = params.get('pid');
@@ -31,8 +32,26 @@ export default function App() {
             setScreen('landing');
         });
 
+        // Binary screenshot transport: receives ArrayBuffer, converts to Blob URL
+        // This is ~33% smaller than Base64 and avoids CPU-heavy string encoding
         s.on('screen-update', (data) => {
-            setScreenImage(data.image);
+            if (data instanceof ArrayBuffer || data instanceof Uint8Array) {
+                const blob = new Blob([data], { type: 'image/jpeg' });
+                const url = URL.createObjectURL(blob);
+                setScreenImage((prev) => {
+                    if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+                    return url;
+                });
+            } else if (data?.image) {
+                // Fallback for legacy Base64 format
+                setScreenImage(data.image);
+            }
+        });
+
+        // Queue screen: server is at capacity, show position
+        s.on('demo-queued', (data) => {
+            setQueueInfo(data);
+            setScreen('queued');
         });
 
         s.on('demo-ended', () => {
@@ -141,6 +160,36 @@ export default function App() {
                         <span>•</span>
                         <span>🔒 100% Free & Private</span>
                     </div>
+                </div>
+            </div>
+        );
+    }
+
+    // ── Queue Screen (server at capacity) ──
+    if (screen === 'queued' && queueInfo) {
+        return (
+            <div className="queue-screen">
+                <div className="queue-card">
+                    <div className="queue-icon">⏳</div>
+                    <h2>You're in Line!</h2>
+                    <p className="queue-subtitle">
+                        Our demo servers are busy helping other visitors.
+                    </p>
+                    <div className="queue-position">
+                        <span className="queue-number">{queueInfo.position}</span>
+                        <span className="queue-label">
+                            {queueInfo.position === 1 ? 'person' : 'people'} ahead of you
+                        </span>
+                    </div>
+                    <p className="queue-wait">
+                        Estimated wait: ~{Math.ceil(queueInfo.estimatedWaitSeconds / 60)} min
+                    </p>
+                    <div className="queue-progress">
+                        <div className="queue-progress-bar" />
+                    </div>
+                    <button className="start-btn mt-6" onClick={() => { setScreen('landing'); setQueueInfo(null); }}>
+                        ← Go Back
+                    </button>
                 </div>
             </div>
         );

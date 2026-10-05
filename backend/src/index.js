@@ -2,6 +2,7 @@ import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
 import { fileURLToPath } from 'url';
@@ -12,11 +13,12 @@ import productRoutes from './routes/products.js';
 import callRoutes from './routes/calls.js';
 import embedRoutes from './routes/embed.js';
 import avatarRoutes from './routes/avatar.js';
-
-dotenv.config();
+import didStreamRoutes from './routes/did-stream.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+dotenv.config({ path: join(__dirname, '../.env') });
 
 const app = express();
 const server = createServer(app);
@@ -51,6 +53,16 @@ app.use(helmet({
 }));
 app.use(express.json());
 
+// Rate limiting — protect public API routes from abuse under high traffic
+const apiLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute window
+    max: 100, // limit each IP to 100 requests per minute
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { message: 'Too many requests, please try again shortly.' }
+});
+app.use('/api/', apiLimiter);
+
 // Serve public folder (agent.js + test.html)
 app.use(express.static(join(__dirname, '../public')));
 
@@ -60,6 +72,7 @@ app.use('/api/products', productRoutes);
 app.use('/api/calls', callRoutes);
 app.use('/api/embed', embedRoutes);
 app.use('/api/avatar', avatarRoutes);
+app.use('/api/did-stream', didStreamRoutes);
 
 // Test route
 app.get('/', (req, res) => {
@@ -69,10 +82,14 @@ app.get('/', (req, res) => {
 // Init Socket.IO
 initSocket(server);
 
-// Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI)
-    .then(() => console.log('MongoDB connected'))
-    .catch(err => console.log('MongoDB error:', err));
+// Connect to MongoDB with connection pooling for high traffic
+mongoose.connect(process.env.MONGODB_URI, {
+    maxPoolSize: 50,                // Allow up to 50 concurrent connections (default: 5)
+    serverSelectionTimeoutMS: 5000, // Fail fast if DB is unreachable
+    socketTimeoutMS: 45000,         // Close sockets after 45s of inactivity
+})
+    .then(() => console.log('✅ MongoDB connected (pool: 50)'))
+    .catch(err => console.log('❌ MongoDB error:', err));
 
 // Start server
 const PORT = process.env.PORT || 5000;

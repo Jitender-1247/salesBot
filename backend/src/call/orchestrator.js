@@ -45,11 +45,14 @@ export class CallOrchestrator {
         this.idleTimer = null; // Timer for proactive idle check-in
         this.autoEndTimer = null; // Timer for 45s auto-end on inactivity
         this.idlePromptCount = 0; // How many idle prompts we've sent
+        this.sessionTimer = null; // Hard kill timer for max session duration
+        this.sessionWarningTimer = null; // 1-minute warning before forced end
     }
 
-    // ── Idle & Inactivity Timers ──
+    // ── Configurable Timeouts ──
     static IDLE_TIMEOUT_MS = 10000;     // 10 seconds of silence before checking in
     static AUTO_END_TIMEOUT_MS = 45000; // 45 seconds of silence before auto-ending session
+    static MAX_SESSION_MS = (parseInt(process.env.MAX_SESSION_DURATION_SECONDS) || 300) * 1000; // Default: 5 minutes
 
     startIdleTimer() {
         this.clearIdleTimer();
@@ -88,7 +91,7 @@ export class CallOrchestrator {
                 await this.agentSpeak(farewell);
 
                 this.io.to(this.callId).emit('demo-ended', { callId: this.callId, reason: 'inactive' });
-                await this.end('', '', 'completed');
+                await this.end('', '', 'completed', 'inactive');
             }, CallOrchestrator.AUTO_END_TIMEOUT_MS);
         }
     }
@@ -131,7 +134,33 @@ export class CallOrchestrator {
                 this.product.demoStartUrl || null
             );
 
-            console.log(`✅ Call ${this.callId} started`);
+            // ── Hard Session Duration Limit ──
+            // Schedule a 1-minute warning before the hard limit
+            const warningMs = CallOrchestrator.MAX_SESSION_MS - 60000;
+            if (warningMs > 0) {
+                this.sessionWarningTimer = setTimeout(async () => {
+                    if (!this.isActive) return;
+                    const remainSec = Math.round((CallOrchestrator.MAX_SESSION_MS - (Date.now() - this.startTime)) / 1000);
+                    await this.agentSpeak(
+                        `Just a heads up — we have about ${remainSec} seconds left in this demo. ` +
+                        `Is there anything specific you'd like to see before we wrap up?`
+                    );
+                }, warningMs);
+            }
+
+            // Hard kill — forcefully ends the session at the max duration
+            this.sessionTimer = setTimeout(async () => {
+                if (!this.isActive) return;
+                console.log(`⏰ Session ${this.callId} hit max duration (${CallOrchestrator.MAX_SESSION_MS / 1000}s) — force ending`);
+                await this.agentSpeak(
+                    `Thanks so much for exploring with me! Our demo time is up. ` +
+                    `If you'd like a deeper dive, our team would love to connect with you!`
+                );
+                this.io.to(this.callId).emit('demo-ended', { callId: this.callId, reason: 'max_duration' });
+                await this.end('', '', 'completed', 'max_duration');
+            }, CallOrchestrator.MAX_SESSION_MS);
+
+            console.log(`✅ Call ${this.callId} started (max duration: ${CallOrchestrator.MAX_SESSION_MS / 1000}s)`);
 
         } catch (err) {
             console.log('❌ Orchestrator start failed:', err.message);
@@ -449,6 +478,7 @@ export class CallOrchestrator {
     async checkSessionTimeout() {
         if (!this.isActive || !this.navigator || !this.navigator.page) return;
 
+        // Check if the target site logged us out (session cookie expired)
         const loggedOut = await this.navigator.checkIfLoggedOut(this.product.url);
         if (loggedOut) {
             console.log('⚠️ Session expired — re-logging in');
@@ -459,19 +489,18 @@ export class CallOrchestrator {
                 decrypt(this.product.credentials.password)
             );
         }
-
-        const elapsed = Date.now() - this.startTime;
-        if (elapsed > 30 * 60 * 1000) {
-            await this.agentSpeak(
-                "We've covered a lot today! I'd love to have someone from our team follow up with you. Can I get your email address?"
-            );
-        }
+        // Note: Hard session duration limit is now enforced by sessionTimer in start().
+        // The old 30-minute soft check has been removed.
     }
 
-    async end(prospectEmail = '', prospectName = '', status = 'completed') {
+    async end(prospectEmail = '', prospectName = '', status = 'completed', endReason = 'user') {
         try {
             this.isActive = false;
             this.clearIdleTimer(); // Clean up idle timer
+
+            // Clean up session duration timers
+            if (this.sessionTimer) { clearTimeout(this.sessionTimer); this.sessionTimer = null; }
+            if (this.sessionWarningTimer) { clearTimeout(this.sessionWarningTimer); this.sessionWarningTimer = null; }
 
             const duration = Math.floor((Date.now() - this.startTime) / 1000);
 
@@ -488,6 +517,7 @@ export class CallOrchestrator {
                 language: this.currentLanguage,
                 duration,
                 status,
+                endReason,
                 satisfaction,
                 satisfactionReason,
                 qualified,

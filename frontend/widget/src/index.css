@@ -1748,3 +1748,115 @@ body::before {
   white-space: nowrap;
   border: 0;
 }
+
+/* ── Timer Urgency (last 60 seconds) ── */
+.timer-urgent {
+  color: #f43f5e !important;
+  font-weight: 700;
+  animation: timer-pulse 1s ease-in-out infinite;
+}
+
+@keyframes timer-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ── Queue Screen (server at capacity) ── */
+.queue-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: radial-gradient(ellipse at 30% 20%, rgba(124,58,237,0.15) 0%, var(--bg-primary) 70%);
+  padding: 2rem;
+}
+
+.queue-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(24px);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--glass-shadow);
+  padding: 3rem 2.5rem;
+  text-align: center;
+  max-width: 420px;
+  width: 100%;
+}
+
+.queue-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+  animation: queue-bounce 2s ease-in-out infinite;
+}
+
+@keyframes queue-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+.queue-card h2 {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 0.5rem;
+}
+
+.queue-subtitle {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin-bottom: 1.5rem;
+}
+
+.queue-position {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+}
+
+.queue-number {
+  font-family: var(--font-display);
+  font-size: 3rem;
+  font-weight: 800;
+  background: var(--accent-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1;
+}
+
+.queue-label {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.queue-wait {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  margin-bottom: 1.5rem;
+}
+
+.queue-progress {
+  width: 100%;
+  height: 4px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 1.5rem;
+}
+
+.queue-progress-bar {
+  height: 100%;
+  width: 30%;
+  background: var(--accent-gradient);
+  border-radius: 2px;
+  animation: queue-progress-sweep 2.5s ease-in-out infinite;
+}
+
+@keyframes queue-progress-sweep {
+  0% { transform: translateX(-100%); width: 30%; }
+  50% { width: 60%; }
+  100% { transform: translateX(400%); width: 30%; }
+}

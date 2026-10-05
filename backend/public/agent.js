@@ -3,6 +3,7 @@
   const script = document.currentScript;
   const productId = script.getAttribute('data-product-id');
   const serverUrl = script.getAttribute('data-server') || 'http://localhost:5000';
+  const widgetUrl = script.getAttribute('data-widget-url') || 'http://localhost:5174';
 
   if (!productId) {
     console.error('SalesBot: data-product-id is required');
@@ -48,10 +49,10 @@
     button.style.boxShadow = '0 4px 24px rgba(99,102,241,0.4)';
   };
 
-  // Create iframe with microphone permission
+  // Create iframe with microphone permission — uses configurable widget URL
   const iframe = document.createElement('iframe');
   iframe.id = 'salesbot-widget';
-  iframe.src = `http://localhost:5174/?pid=${productId}`;
+  iframe.src = `${widgetUrl}/?pid=${productId}`;
   iframe.allow = 'microphone; camera; autoplay; display-capture';
   iframe.setAttribute('allowtransparency', 'true');
   iframe.style.cssText = `

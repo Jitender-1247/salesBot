@@ -6,11 +6,17 @@ import Groq from 'groq-sdk';
 
 dotenv.config();
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const groq = process.env.GROQ_API_KEY
+    ? new Groq({ apiKey: process.env.GROQ_API_KEY })
+    : null;
 
 async function analyzePage(pageContent, prompt) {
+    if (!groq) {
+        throw new Error('Groq API key not configured for product exploration');
+    }
+    const model = process.env.GROQ_MODEL || 'qwen/qwen3.8-27b';
     const response = await groq.chat.completions.create({
-        model: 'llama-3.1-8b-instant',
+        model,
         messages: [
             {
                 role: 'system',
