@@ -144,21 +144,32 @@ export function initSocket(server) {
                 // ── Smart Screenshot Capture ──
                 // Screenshots are sent as base64 data URL strings for reliable delivery
                 // across all Socket.IO transports (polling fallback, Nginx proxies, etc.)
+                let frameCount = 0;
                 const screenshotInterval = setInterval(async () => {
                     try {
-                        if (orchestrator.navigator.page) {
+                        if (orchestrator.navigator?.page) {
                             const screenshot = await orchestrator.navigator.page.screenshot({
                                 type: 'jpeg',
                                 quality: 50
                             });
                             // Send as base64 data URL — works reliably across all transports
                             const dataUrl = `data:image/jpeg;base64,${screenshot.toString('base64')}`;
+                            frameCount++;
+                            if (frameCount === 1 || frameCount % 10 === 0) {
+                                console.log(`📸 [${callId}] Emitted screenshot frame #${frameCount} (${(screenshot.length / 1024).toFixed(1)} KB)`);
+                            }
+                            // Emit directly to caller socket AND to room for reliability
+                            socket.emit('screen-update', { image: dataUrl });
                             io.to(callId).emit('screen-update', { image: dataUrl });
+                        } else {
+                            if (frameCount === 0) {
+                                console.log(`⏳ [${callId}] Navigator page not available yet for screenshot`);
+                            }
                         }
                     } catch (err) {
-                        // page might be navigating — skip this frame
+                        console.warn(`⚠️ [${callId}] Screenshot capture error:`, err.message);
                     }
-                }, 2000);
+                }, 1500);
 
                 screenshotIntervals.set(callId, screenshotInterval);
 

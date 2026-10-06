@@ -37,6 +37,7 @@ export default function App() {
 
         // Screenshot: backend sends { image: 'data:image/jpeg;base64,...' }
         s.on('screen-update', (data) => {
+            console.log('📸 [Widget] screen-update event received:', data?.image ? 'data URL' : typeof data);
             if (data?.image) {
                 setScreenImage(data.image);
             } else if (data instanceof ArrayBuffer || data instanceof Uint8Array) {

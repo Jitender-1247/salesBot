@@ -205,10 +205,22 @@ async def entrypoint(ctx: JobContext):
 
 
 if __name__ == '__main__':
+    lk_url = os.getenv('LIVEKIT_URL', '').strip()
+    lk_key = os.getenv('LIVEKIT_API_KEY', '').strip()
+    lk_secret = os.getenv('LIVEKIT_API_SECRET', '').strip()
+
+    if not lk_url or 'your-livekit-url' in lk_url:
+        logger.error(f"❌ INVALID LIVEKIT_URL: '{lk_url}'. Please set LIVEKIT_URL in backend/.env to your real LiveKit Cloud URL!")
+    else:
+        logger.info(f"🚀 Starting Keyframe Agent with LiveKit URL: {lk_url} (key: {lk_key[:6]}...)")
+
     cli.run_app(
         WorkerOptions(
             entrypoint_fnc=entrypoint,
             agent_name='keyframe-avatar',
             worker_type=agents.WorkerType.ROOM,
+            ws_url=lk_url if (lk_url and 'your-livekit-url' not in lk_url) else None,
+            api_key=lk_key if (lk_key and 'your-api-key' not in lk_key) else None,
+            api_secret=lk_secret if (lk_secret and 'your-api-secret' not in lk_secret) else None,
         )
     )

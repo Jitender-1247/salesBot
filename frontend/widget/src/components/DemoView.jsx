@@ -403,7 +403,11 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
 
                         {screenImage ? (
                             <img
-                                src={screenImage}
+                                src={
+                                    typeof screenImage === 'string' && (screenImage.startsWith('data:') || screenImage.startsWith('blob:'))
+                                        ? screenImage
+                                        : `data:image/jpeg;base64,${screenImage}`
+                                }
                                 alt="Live demo screen"
                             />
                         ) : (

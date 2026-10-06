@@ -13,7 +13,7 @@ frontend/dashboard/.env.local
 # frontend/dashboard/.env.production
 
 # Build outputs
-frontend/widget/dist/
+# frontend/widget/dist/
 frontend/dashboard/dist/
 
 # Python
