@@ -125,11 +125,13 @@ export class CallOrchestrator {
 
             // Launch browser and login (uses stored cookies if available to bypass form login)
             await this.navigator.launch();
+            const _email = this.product.credentials?.email ? decrypt(this.product.credentials.email) : '';
+            const _password = this.product.credentials?.password ? decrypt(this.product.credentials.password) : '';
             await this.navigator.login(
                 this.product.url,
                 this.product.knowledgeMap.loginSteps,
-                decrypt(this.product.credentials.email),
-                decrypt(this.product.credentials.password),
+                _email,
+                _password,
                 this.product.sessionCookies || null,
                 this.product.demoStartUrl || null
             );
@@ -485,8 +487,8 @@ export class CallOrchestrator {
             await this.navigator.login(
                 this.product.url,
                 this.product.knowledgeMap.loginSteps,
-                decrypt(this.product.credentials.email),
-                decrypt(this.product.credentials.password)
+                this.product.credentials?.email ? decrypt(this.product.credentials.email) : '',
+                this.product.credentials?.password ? decrypt(this.product.credentials.password) : ''
             );
         }
         // Note: Hard session duration limit is now enforced by sessionTimer in start().
