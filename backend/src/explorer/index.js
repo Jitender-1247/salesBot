@@ -247,99 +247,101 @@ export async function exploreProduct(productId) {
 
         console.log('🔑 Login selectors found:', loginSteps);
 
-        const email = decrypt(product.credentials.email);
-        const password = decrypt(product.credentials.password);
+        const email = product.credentials?.email ? decrypt(product.credentials.email) : '';
+        const password = product.credentials?.password ? decrypt(product.credentials.password) : '';
 
-        // Smart selector discovery — works with any login form including 2-step (Zoho, Google, etc.)
-        const emailSelectors = [
-            loginSteps?.emailSelector,
-            '#login_id', 'input[name="login_id"]', 'input[type="email"]',
-            'input[name="email"]', '#email', '#user-name',
-            'input[name="username"]', 'input[placeholder*="email" i]',
-            'input[placeholder*="username" i]', 'input[placeholder*="mobile" i]',
-        ].filter(Boolean);
+        // ── Only attempt login if credentials were provided ──
+        if (email && password) {
+            // Smart selector discovery — works with any login form including 2-step (Zoho, Google, etc.)
+            const emailSelectors = [
+                loginSteps?.emailSelector,
+                '#login_id', 'input[name="login_id"]', 'input[type="email"]',
+                'input[name="email"]', '#email', '#user-name',
+                'input[name="username"]', 'input[placeholder*="email" i]',
+                'input[placeholder*="username" i]', 'input[placeholder*="mobile" i]',
+            ].filter(Boolean);
 
-        const passwordSelectors = [
-            loginSteps?.passwordSelector,
-            'input[type="password"]', '#password',
-            'input[name="password"]', 'input[placeholder*="password" i]',
-        ].filter(Boolean);
+            const passwordSelectors = [
+                loginSteps?.passwordSelector,
+                'input[type="password"]', '#password',
+                'input[name="password"]', 'input[placeholder*="password" i]',
+            ].filter(Boolean);
 
-        const submitSelectors = [
-            loginSteps?.submitSelector,
-            'button#nextbtn', 'button[type="submit"]', 'input[type="submit"]',
-            '#login-button', 'button:has-text("Next")', 'button:has-text("Sign in")',
-            'button:has-text("Log in")', 'button:has-text("Continue")', '[type="submit"]',
-        ].filter(Boolean);
+            const submitSelectors = [
+                loginSteps?.submitSelector,
+                'button#nextbtn', 'button[type="submit"]', 'input[type="submit"]',
+                '#login-button', 'button:has-text("Next")', 'button:has-text("Sign in")',
+                'button:has-text("Log in")', 'button:has-text("Continue")', '[type="submit"]',
+            ].filter(Boolean);
 
-        const findSelector = async (selectors) => {
-            for (const sel of selectors) {
-                try {
-                    const loc = page.locator(sel).first();
-                    const visible = await loc.isVisible({ timeout: 1000 }).catch(() => false);
-                    if (visible) return sel;
-                } catch { /* try next */ }
-            }
-            return null;
-        };
+            const findSelector = async (selectors) => {
+                for (const sel of selectors) {
+                    try {
+                        const loc = page.locator(sel).first();
+                        const visible = await loc.isVisible({ timeout: 1000 }).catch(() => false);
+                        if (visible) return sel;
+                    } catch { /* try next */ }
+                }
+                return null;
+            };
 
-        try {
-            // Fill email using real keystrokes (React forms ignore .fill())
-            const emailSel = await findSelector(emailSelectors);
-            if (emailSel) {
-                console.log(`📧 Explorer found email field: ${emailSel}`);
-                const emailLoc = page.locator(emailSel).first();
-                await emailLoc.click({ timeout: 3000 });
-                await emailLoc.clear();
-                await emailLoc.pressSequentially(email, { delay: 50 });
-            }
+            try {
+                const emailSel = await findSelector(emailSelectors);
+                if (emailSel) {
+                    console.log(`📧 Explorer found email field: ${emailSel}`);
+                    const emailLoc = page.locator(emailSel).first();
+                    await emailLoc.click({ timeout: 3000 });
+                    await emailLoc.clear();
+                    await emailLoc.pressSequentially(email, { delay: 50 });
+                }
 
-            await page.waitForTimeout(500);
+                await page.waitForTimeout(500);
 
-            // Check if password visible — if not, click Next (2-step login)
-            let passSel = await findSelector(passwordSelectors);
-            if (!passSel) {
-                console.log('🔄 Explorer: Password hidden — clicking Next for 2-step login...');
-                const submitSel = await findSelector(submitSelectors);
-                if (submitSel) {
-                    await page.locator(submitSel).first().click({ timeout: 5000 });
+                let passSel = await findSelector(passwordSelectors);
+                if (!passSel) {
+                    console.log('🔄 Explorer: Password hidden — clicking Next for 2-step login...');
+                    const submitSel = await findSelector(submitSelectors);
+                    if (submitSel) {
+                        await page.locator(submitSel).first().click({ timeout: 5000 });
+                    } else {
+                        await page.keyboard.press('Enter');
+                    }
+                    await page.waitForTimeout(3000);
+                    passSel = await findSelector(passwordSelectors);
+                }
+
+                if (passSel) {
+                    console.log(`🔒 Explorer found password field: ${passSel}`);
+                    const passLoc = page.locator(passSel).first();
+                    await passLoc.click({ timeout: 3000 });
+                    await passLoc.clear();
+                    await passLoc.pressSequentially(password, { delay: 50 });
+                }
+
+                await page.waitForTimeout(500);
+
+                const finalSel = await findSelector(submitSelectors);
+                if (finalSel) {
+                    await page.locator(finalSel).first().click({ timeout: 5000 });
                 } else {
                     await page.keyboard.press('Enter');
                 }
-                await page.waitForTimeout(3000);
-                passSel = await findSelector(passwordSelectors);
+
+                await page.waitForLoadState('domcontentloaded', { timeout: 15000 });
+                console.log(`✅ Explorer logged in — now on: ${page.url()}`);
+            } catch (e) {
+                console.log('⚠️ Warning: Explorer login failed. Attempting to proceed anyway...', e.message);
             }
 
-            // Fill password using real keystrokes
-            if (passSel) {
-                console.log(`🔒 Explorer found password field: ${passSel}`);
-                const passLoc = page.locator(passSel).first();
-                await passLoc.click({ timeout: 3000 });
-                await passLoc.clear();
-                await passLoc.pressSequentially(password, { delay: 50 });
-            }
-
-            await page.waitForTimeout(500);
-
-            // Submit
-            const finalSel = await findSelector(submitSelectors);
-            if (finalSel) {
-                await page.locator(finalSel).first().click({ timeout: 5000 });
-            } else {
-                await page.keyboard.press('Enter');
-            }
-
-            await page.waitForLoadState('domcontentloaded', { timeout: 15000 });
-            console.log(`✅ Explorer logged in — now on: ${page.url()}`);
-        } catch (e) {
-            console.log('⚠️ Warning: Explorer login failed. Attempting to proceed anyway...', e.message);
+            console.log('✅ Logged in — starting page exploration');
+        } else {
+            console.log('ℹ️ No credentials provided — exploring as public/guest user');
         }
-
-        console.log('✅ Logged in — starting page exploration');
 
         knowledgeMap.loginSteps = loginSteps;
 
         await explorePage(page, knowledgeMap, visitedUrls, product.url);
+
 
         // Generate product summary via Groq
         const summary = await analyzePage(
