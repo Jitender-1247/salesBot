@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
 import DemoView from './components/DemoView';
 
-const SERVER_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+const SERVER_URL = import.meta.env.PROD
+    ? ''   // production: use relative URLs, Nginx proxies /api/ and /socket.io/
+    : (import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000');
+
 
 export default function App() {
     const [screen, setScreen] = useState('landing');
