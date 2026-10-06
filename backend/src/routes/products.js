@@ -113,6 +113,34 @@ router.get('/:id', protect, async (req, res) => {
   }
 });
 
+// Re-trigger exploration (retry after failure)
+router.post('/:id/explore', protect, async (req, res) => {
+  try {
+    const product = await Product.findOne({
+      _id: req.params.id,
+      clientId: req.clientId
+    });
+
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+
+    // Reset status to exploring
+    await Product.findByIdAndUpdate(req.params.id, {
+      explorationStatus: 'exploring',
+      'knowledgeMap.productSummary': '',
+      'knowledgeMap.pages': []
+    });
+
+    // Fire exploration in background
+    exploreProduct(req.params.id).catch(err =>
+      console.log('Retry exploration error:', err.message)
+    );
+
+    res.json({ message: 'Exploration re-triggered', status: 'exploring' });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+});
+
 // Delete a product (bot) — cascades to its calls and leads
 router.delete('/:id', protect, async (req, res) => {
   try {
