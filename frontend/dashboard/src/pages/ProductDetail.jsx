@@ -14,6 +14,7 @@ export default function ProductDetail() {
     const [demoStartUrl, setDemoStartUrl] = useState('');
     const [savingSession, setSavingSession] = useState(false);
     const [sessionSaved, setSessionSaved] = useState(false);
+    const [retrying, setRetrying] = useState(false);
 
     useEffect(() => {
         fetchProduct();
@@ -61,6 +62,19 @@ export default function ProductDetail() {
             alert('Failed to remove the bot. Please try again.');
         }
     };
+    const retryExploration = async () => {
+        try {
+            setRetrying(true);
+            await api.post(`/products/${id}/explore`);
+            setProduct(prev => ({ ...prev, explorationStatus: 'exploring' }));
+            fetchProduct();
+        } catch (err) {
+            console.log('Error retrying exploration:', err);
+            alert('Failed to retry. Please try again.');
+        } finally {
+            setRetrying(false);
+        }
+    };
 
     if (loading) return (
         <div className="flex min-h-screen">
@@ -92,7 +106,28 @@ export default function ProductDetail() {
             <div className="rounded-2xl p-4 mb-6 flex items-center gap-3 border-l-4"
                 style={{ background: s.bg, border: `1px solid ${s.border}`, borderLeftColor: s.color }}>
                 {status === 'exploring' && <div className="w-4 h-4 rounded-full animate-spin border-2 border-amber-400 border-t-transparent" />}
-                <p className="text-xs font-bold" style={{ color: s.color }}>{s.icon} {s.text}</p>
+                <p className="text-xs font-bold flex-1" style={{ color: s.color }}>{s.icon} {s.text}</p>
+                {status === 'failed' && (
+                    <button
+                        onClick={retryExploration}
+                        disabled={retrying}
+                        style={{
+                            background: 'rgba(244,63,94,0.15)',
+                            border: '1px solid rgba(244,63,94,0.4)',
+                            color: '#f43f5e',
+                            borderRadius: '8px',
+                            padding: '6px 14px',
+                            fontSize: '11px',
+                            fontWeight: '700',
+                            cursor: retrying ? 'not-allowed' : 'pointer',
+                            opacity: retrying ? 0.6 : 1,
+                            whiteSpace: 'nowrap',
+                            transition: 'all 0.2s',
+                        }}
+                    >
+                        {retrying ? '🔄 Retrying...' : '🔄 Retry Exploration'}
+                    </button>
+                )}
             </div>
         );
     };
