@@ -72,6 +72,11 @@ services:
       - ./backend/.env # Reuse backend env for LiveKit keys
     environment:
       - TTS_BASE_URL=http://tts-server:8000
+      # Explicitly forward LiveKit vars so they always override any stale values
+      - LIVEKIT_URL=${LIVEKIT_URL}
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
+      - KEYFRAME_API_KEY=${KEYFRAME_API_KEY}
     depends_on:
       - tts-server
     restart: unless-stopped
