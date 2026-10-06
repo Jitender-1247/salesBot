@@ -403,7 +403,7 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
 
                         {screenImage ? (
                             <img
-                                src={`data:image/jpeg;base64,${screenImage}`}
+                                src={screenImage}
                                 alt="Live demo screen"
                             />
                         ) : (
