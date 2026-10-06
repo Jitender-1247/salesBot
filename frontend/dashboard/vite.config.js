@@ -3,12 +3,13 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
+  base: '/dashboard/',
   plugins: [
     react(),
     tailwindcss(),
   ],
   server: {
     port: 5173,
-    strictPort: true, // fail loudly instead of silently picking another port
+    strictPort: true,
   },
 })
