@@ -142,25 +142,23 @@ export function initSocket(server) {
                 }
 
                 // ── Smart Screenshot Capture ──
-                // Instead of a blind 1-second loop, we capture screenshots:
-                // 1. Immediately after navigation/click actions (triggered by orchestrator events)
-                // 2. At a slower 2-second interval as a fallback for animations/loading
-                // Screenshots are sent as raw binary Buffers (not Base64) to reduce CPU + bandwidth by ~33%
+                // Screenshots are sent as base64 data URL strings for reliable delivery
+                // across all Socket.IO transports (polling fallback, Nginx proxies, etc.)
                 const screenshotInterval = setInterval(async () => {
                     try {
                         if (orchestrator.navigator.page) {
                             const screenshot = await orchestrator.navigator.page.screenshot({
                                 type: 'jpeg',
-                                quality: 50 // Slightly lower quality for faster encoding
+                                quality: 50
                             });
-                            // Send as raw binary Buffer — NOT Base64
-                            // Widget receives ArrayBuffer and creates Blob URL directly
-                            io.to(callId).emit('screen-update', screenshot);
+                            // Send as base64 data URL — works reliably across all transports
+                            const dataUrl = `data:image/jpeg;base64,${screenshot.toString('base64')}`;
+                            io.to(callId).emit('screen-update', { image: dataUrl });
                         }
                     } catch (err) {
                         // page might be navigating — skip this frame
                     }
-                }, 2000); // 2 seconds instead of 1 — halves CPU load
+                }, 2000);
 
                 screenshotIntervals.set(callId, screenshotInterval);
 

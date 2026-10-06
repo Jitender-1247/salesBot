@@ -35,19 +35,18 @@ export default function App() {
             setScreen('landing');
         });
 
-        // Binary screenshot transport: receives ArrayBuffer, converts to Blob URL
-        // This is ~33% smaller than Base64 and avoids CPU-heavy string encoding
+        // Screenshot: backend sends { image: 'data:image/jpeg;base64,...' }
         s.on('screen-update', (data) => {
-            if (data instanceof ArrayBuffer || data instanceof Uint8Array) {
+            if (data?.image) {
+                setScreenImage(data.image);
+            } else if (data instanceof ArrayBuffer || data instanceof Uint8Array) {
+                // Legacy binary fallback
                 const blob = new Blob([data], { type: 'image/jpeg' });
                 const url = URL.createObjectURL(blob);
                 setScreenImage((prev) => {
                     if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
                     return url;
                 });
-            } else if (data?.image) {
-                // Fallback for legacy Base64 format
-                setScreenImage(data.image);
             }
         });
 
