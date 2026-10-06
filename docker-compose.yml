@@ -16,27 +16,8 @@ services:
       timeout: 5s
       retries: 3
 
-  # ── Browserless (Remote Chrome browser pool) ──
-  # Isolates Chromium from the backend process, preventing OOM crashes.
-  # Each demo session gets its own browser context inside this container.
-  browserless:
-    image: browserless/chrome:latest
-    ports:
-      - "3000:3000"
-    environment:
-      - MAX_CONCURRENT_SESSIONS=20
-      - CONNECTION_TIMEOUT=300000  # 5 minutes — matches MAX_SESSION_DURATION_SECONDS
-      - PREBOOT_CHROME=true        # Keep Chrome instances warm for faster cold starts
-      - DEMO_MODE=false
-      - ENABLE_DEBUGGER=false
-      - TOKEN=salesbot-browser-token  # Secure the endpoint
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 8G  # Cap memory — prevents runaway tabs from killing the host
-        reservations:
-          memory: 2G
+  # Browserless removed — using local Playwright/Chromium instead (saves 8GB RAM)
+  # To re-enable, uncomment and set BROWSER_WS_ENDPOINT in backend/.env
 
   # ── Backend (Node.js + Socket.IO) ──
   backend:
@@ -58,8 +39,6 @@ services:
       redis:
         condition: service_healthy
       stt-server:
-        condition: service_started
-      browserless:
         condition: service_started
     restart: unless-stopped
 
