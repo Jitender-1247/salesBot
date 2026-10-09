@@ -42,6 +42,8 @@ services:
         condition: service_started
       tts-server:
         condition: service_started
+    volumes:
+      - ./backend/src:/app/src
     restart: unless-stopped
 
   stt-server:
