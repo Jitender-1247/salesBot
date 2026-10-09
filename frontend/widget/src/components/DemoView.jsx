@@ -138,6 +138,7 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
         parseInt(import.meta.env.VITE_MAX_SESSION_DURATION || '300')
     ); // default 5 min, overridden by backend config
 
+    const [chatInput, setChatInput] = useState('');
     const genId = () => `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
     // Safety fallback: auto-dismiss loading overlay after 4 seconds max if video track connection is delayed
@@ -341,6 +342,25 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
         }
     }, [socket, callData]);
 
+    const handleSendText = (e) => {
+        e?.preventDefault();
+        const trimmed = chatInput.trim();
+        if (!trimmed || !socket || !callData) return;
+        setChatInput('');
+        setUserText(trimmed);
+        setMessages(prev => [...prev, {
+            id: genId(),
+            role: 'user',
+            content: trimmed,
+            timestamp: new Date()
+        }]);
+        socket.emit('user-message', {
+            callId: callData.callId,
+            text: trimmed
+        });
+        setTimeout(() => setUserText(''), 4000);
+    };
+
     return (
         <div className="app-container">
             {/* Fullscreen Loading Overlay — waits for Live 3D Avatar to connect */}
@@ -422,7 +442,7 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
                         )}
                     </div>
 
-                    {/* Hidden Audio Handler (recording & playback active in background) */}
+                    {/* Hidden Audio Handler for Live TTS Audio Playback */}
                     <div style={{ display: 'none' }}>
                         <AudioPlayer
                             ref={audioPlayerRef}
@@ -430,20 +450,10 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
                             onPlaybackStart={handlePlaybackStart}
                             onPlaybackEnd={handlePlaybackEnd}
                         />
-                        <AudioRecorder
-                            disabled={false}
-                            onRecordingComplete={handleRecordingComplete}
-                            isProcessing={agentState === 'processing'}
-                            onRecordingStart={handleRecordingStart}
-                            onRecordingStop={handleRecordingStop}
-                            onInterrupt={handleInterrupt}
-                            isSpeaking={agentState === 'speaking'}
-                            onVolumeChange={setMicVolume}
-                        />
                     </div>
                 </div>
 
-                {/* Right Column: Avatar on Top, Live Transcript Below */}
+                {/* Right Column: Avatar on Top, Live Transcript & Controls Below */}
                 <div className="side-panel">
                     {/* Top: Avatar Video Card with Natural Portrait Aspect Ratio */}
                     <div className="side-avatar-card glass-card">
@@ -468,7 +478,7 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
                         </div>
                     </div>
 
-                    {/* Bottom: Live Transcript & Conversation Stream */}
+                    {/* Bottom: Live Transcript, Interactive Mic & Chat Bar */}
                     <div className="side-transcript-card glass-card">
                         <div className="side-transcript-header">
                             <span>💬 Live Transcript</span>
@@ -513,6 +523,37 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
                                 })
                             )}
                             <div ref={messagesEndRef} />
+                        </div>
+
+                        {/* Live Microphone Controls & Chat Input */}
+                        <div className="transcript-footer-controls">
+                            <AudioRecorder
+                                disabled={false}
+                                onRecordingComplete={handleRecordingComplete}
+                                isProcessing={agentState === 'processing'}
+                                onRecordingStart={handleRecordingStart}
+                                onRecordingStop={handleRecordingStop}
+                                onInterrupt={handleInterrupt}
+                                isSpeaking={agentState === 'speaking'}
+                                onVolumeChange={setMicVolume}
+                            />
+                            <form className="transcript-chat-form" onSubmit={handleSendText}>
+                                <input
+                                    type="text"
+                                    className="transcript-chat-input"
+                                    placeholder="Type a request (or speak)..."
+                                    value={chatInput}
+                                    onChange={(e) => setChatInput(e.target.value)}
+                                />
+                                <button
+                                    type="submit"
+                                    className="transcript-chat-submit"
+                                    disabled={!chatInput.trim()}
+                                    title="Send message"
+                                >
+                                    ➤
+                                </button>
+                            </form>
                         </div>
                     </div>
                 </div>

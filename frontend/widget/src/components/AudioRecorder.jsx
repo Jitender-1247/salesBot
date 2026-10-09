@@ -1,11 +1,11 @@
 import { useRef, useCallback, useEffect, useState } from 'react';
 
-// VAD thresholds — tuned for typical laptop/phone mic
-const SILENCE_THRESHOLD    = 0.015;  // below this = silence
-const SPEECH_THRESHOLD     = 0.03;   // above this = speech
-const SILENCE_DURATION_MS  = 1200;   // ms of silence before we stop recording
-const MIN_SPEECH_DURATION_MS = 500;  // minimum speech length to send
-const SPEECH_CONFIRM_TICKS = 2;      // consecutive ticks above threshold before recording starts
+// VAD thresholds — tuned for typical laptop/headset mic
+const SILENCE_THRESHOLD       = 0.007; // below this = silence
+const SPEECH_THRESHOLD        = 0.016; // above this = speech (sensitive to conversational voice)
+const SILENCE_DURATION_MS     = 850;   // ms of silence before utterance finishes
+const MIN_SPEECH_DURATION_MS  = 350;   // minimum speech length to send
+const SPEECH_CONFIRM_TICKS    = 2;     // consecutive ticks above threshold before recording starts
 
 export default function AudioRecorder({
     disabled = false,
@@ -28,6 +28,7 @@ export default function AudioRecorder({
     const isRecordingRef     = useRef(false);
     const speechConfirmRef   = useRef(0);
     const isInitializedRef   = useRef(false);
+    const echoCooldownRef    = useRef(0);
 
     // Keep callbacks in refs so VAD loop never goes stale
     const onRecordingCompleteRef = useRef(onRecordingComplete);
@@ -47,6 +48,13 @@ export default function AudioRecorder({
     useEffect(() => { isProcessingRef.current        = isProcessing;        }, [isProcessing]);
     useEffect(() => { isSpeakingRef.current          = isSpeaking;          }, [isSpeaking]);
     useEffect(() => { disabledRef.current            = disabled;            }, [disabled]);
+
+    // Acoustic Echo Guard: When agent stops speaking, add 600ms buffer so room reverberation doesn't trigger mic
+    useEffect(() => {
+        if (!isSpeaking) {
+            echoCooldownRef.current = Date.now() + 600;
+        }
+    }, [isSpeaking]);
 
     const [isListening,  setIsListening]  = useState(false);
     const [isCapturing,  setIsCapturing]  = useState(false);
@@ -74,7 +82,7 @@ export default function AudioRecorder({
             const blob = new Blob(chunksRef.current, { type: mimeType });
             isRecordingRef.current = false;
             setIsCapturing(false);
-            if (blob.size > 2000) {                       // ~100ms minimum
+            if (blob.size > 1500) { // Valid utterance (~80ms minimum)
                 onRecordingCompleteRef.current(blob);
             }
         };
@@ -85,7 +93,7 @@ export default function AudioRecorder({
         onRecordingStartRef.current?.();
     }, []);
 
-    // ── Stop the current recording ──
+    // ── Stop current recording ──
     const stopCapture = useCallback(() => {
         if (mediaRecorderRef.current?.state === 'recording') {
             mediaRecorderRef.current.stop();
@@ -94,6 +102,18 @@ export default function AudioRecorder({
         silenceStartRef.current = null;
         speechStartRef.current  = null;
     }, []);
+
+    // ── Toggle manual capture (Push/Tap to Talk) ──
+    const toggleCapture = useCallback(() => {
+        if (isRecordingRef.current) {
+            stopCapture();
+        } else {
+            if (isSpeakingRef.current) {
+                onInterruptRef.current?.();
+            }
+            startCapture();
+        }
+    }, [startCapture, stopCapture]);
 
     // ── Read RMS volume from analyser ──
     const getVolume = useCallback(() => {
@@ -108,15 +128,23 @@ export default function AudioRecorder({
         return Math.sqrt(sum / data.length);
     }, []);
 
-    // ── Core VAD loop — runs every 30ms, never re-created ──
+    // ── Core VAD loop — runs every 30ms ──
     const runVAD = useCallback(() => {
         if (disabledRef.current) return;
 
-        const vol      = getVolume();
+        const vol = getVolume();
         setVolume(vol);
         onVolumeChangeRef.current?.(vol);
 
-        const now      = Date.now();
+        const now = Date.now();
+
+        // ── Echo suppression: ignore speaker feedback while Sofia is speaking or in cooldown ──
+        if (isSpeakingRef.current || now < echoCooldownRef.current) {
+            silenceStartRef.current = null;
+            speechConfirmRef.current = 0;
+            return;
+        }
+
         const isSpeech = vol > SPEECH_THRESHOLD;
         const isSilent = vol < SILENCE_THRESHOLD;
 
@@ -128,9 +156,9 @@ export default function AudioRecorder({
                 } else if (now - silenceStartRef.current > SILENCE_DURATION_MS) {
                     const dur = speechStartRef.current ? now - speechStartRef.current : 0;
                     if (dur > MIN_SPEECH_DURATION_MS) {
-                        stopCapture();          // valid utterance — send it
+                        stopCapture(); // Valid utterance — send it
                     } else {
-                        // Too short — discard silently
+                        // Too short — discard
                         if (mediaRecorderRef.current?.state === 'recording') {
                             mediaRecorderRef.current.stop();
                         }
@@ -141,16 +169,13 @@ export default function AudioRecorder({
                     }
                 }
             } else {
-                silenceStartRef.current = null;   // reset silence timer while speaking
+                silenceStartRef.current = null; // reset silence timer while active
             }
         } else if (!isProcessingRef.current) {
             // Not recording — wait for speech to start
             if (isSpeech) {
                 speechConfirmRef.current += 1;
                 if (speechConfirmRef.current >= SPEECH_CONFIRM_TICKS) {
-                    if (isSpeakingRef.current) {
-                        onInterruptRef.current?.();
-                    }
                     startCapture();
                     speechConfirmRef.current = 0;
                 }
@@ -158,7 +183,7 @@ export default function AudioRecorder({
                 speechConfirmRef.current = 0;
             }
         }
-    }, [getVolume, startCapture, stopCapture]);   // stable deps — never recreates
+    }, [getVolume, startCapture, stopCapture]);
 
     // ── Init microphone once ──
     useEffect(() => {
@@ -179,8 +204,8 @@ export default function AudioRecorder({
 
                 streamRef.current = stream;
 
-                const ctx     = new AudioContext({ sampleRate: 16000 });
-                const source  = ctx.createMediaStreamSource(stream);
+                const ctx      = new AudioContext({ sampleRate: 16000 });
+                const source   = ctx.createMediaStreamSource(stream);
                 const analyser = ctx.createAnalyser();
                 analyser.fftSize = 512;
                 analyser.smoothingTimeConstant = 0.3;
@@ -190,7 +215,7 @@ export default function AudioRecorder({
                 analyserRef.current     = analyser;
                 setIsListening(true);
 
-                // Unlock audio playback context (browser policy)
+                // Unlock audio playback context
                 const unlock = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
                 unlock.volume = 0;
                 unlock.play().catch(() => {});
@@ -214,55 +239,72 @@ export default function AudioRecorder({
         if (!isListening) return;
         vadIntervalRef.current = setInterval(runVAD, 30);
         return () => clearInterval(vadIntervalRef.current);
-    }, [isListening, runVAD]);   // runVAD is stable — this only runs once after mic is ready
+    }, [isListening, runVAD]);
 
     // ── Stop recording when externally disabled ──
     useEffect(() => {
         if (disabled && isRecordingRef.current) stopCapture();
     }, [disabled, stopCapture]);
 
-    const barH = Math.min(100, volume * 1000);
+    // ── Keyboard shortcut: Spacebar to toggle or hold to talk ──
+    useEffect(() => {
+        const onKeyDown = (e) => {
+            if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+                e.preventDefault();
+                if (!isRecordingRef.current && !isProcessingRef.current) {
+                    if (isSpeakingRef.current) onInterruptRef.current?.();
+                    startCapture();
+                }
+            }
+        };
+
+        const onKeyUp = (e) => {
+            if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+                e.preventDefault();
+                if (isRecordingRef.current) {
+                    stopCapture();
+                }
+            }
+        };
+
+        window.addEventListener('keydown', onKeyDown);
+        window.addEventListener('keyup', onKeyUp);
+        return () => {
+            window.removeEventListener('keydown', onKeyDown);
+            window.removeEventListener('keyup', onKeyUp);
+        };
+    }, [startCapture, stopCapture]);
+
+    const barH = Math.min(24, Math.max(4, volume * 350));
 
     return (
-        <div className="record-btn-container">
-            <div
-                className={`backend-warning-banner ${disabled ? 'visible' : 'hidden'}`}
-                aria-hidden={!disabled}
+        <div className="audio-controls-panel">
+            <button
+                type="button"
+                className={`mic-pill-btn ${isCapturing ? 'capturing' : isSpeaking ? 'agent-speaking' : isProcessing ? 'processing' : 'ready'}`}
+                onClick={toggleCapture}
+                title={isCapturing ? 'Click to finish speaking' : 'Click to talk (or just speak naturally)'}
             >
-                <span>Backends offline — recording disabled.</span>
-            </div>
-
-            <div
-                className={`record-btn ${isCapturing ? 'recording' : ''} ${isListening ? 'listening-active' : ''}`}
-                aria-label={isCapturing ? 'Recording your voice' : 'Listening for your voice'}
-                title={isCapturing ? 'Speaking…' : isListening ? 'Always listening — just speak' : 'Initializing mic…'}
-            >
-                {isCapturing ? (
-                    <div className="voice-bars">
-                        {[...Array(5)].map((_, i) => (
-                            <div
-                                key={i}
-                                className="voice-bar"
-                                style={{
-                                    height: `${Math.max(4, barH * (0.6 + (i % 3) * 0.2))}px`,
-                                    animationDelay: `${i * 0.1}s`,
-                                }}
-                            />
-                        ))}
-                    </div>
-                ) : (
-                    <span style={{ fontSize: '1.3rem' }}>🎤</span>
-                )}
-            </div>
-
-            <div className="record-btn-ring" />
-            <div className="keyboard-hint">
-                <span>
-                    {isCapturing  ? 'Listening…'            :
-                     isListening  ? 'Just speak — always on' :
-                                    'Setting up mic…'}
+                <span className="mic-icon">
+                    {isCapturing ? '🔴' : isSpeaking ? '🔊' : isProcessing ? '⏳' : '🎙️'}
                 </span>
-            </div>
+                <span className="mic-status-text">
+                    {isCapturing
+                        ? 'Listening to you... (Click to send)'
+                        : isSpeaking
+                        ? 'Sofia speaking'
+                        : isProcessing
+                        ? 'Thinking...'
+                        : 'Mic on • Speak or click to talk'}
+                </span>
+                {isCapturing && (
+                    <div className="mic-mini-wave">
+                        <span style={{ height: `${barH}px` }} />
+                        <span style={{ height: `${Math.max(4, barH * 0.8)}px` }} />
+                        <span style={{ height: `${Math.max(4, barH * 1.2)}px` }} />
+                    </div>
+                )}
+            </button>
         </div>
     );
 }

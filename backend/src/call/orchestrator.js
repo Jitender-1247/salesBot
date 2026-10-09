@@ -241,6 +241,18 @@ export class CallOrchestrator {
                 return;
             }
 
+            // Filter out acoustic echo from the agent's own speech (mic picking up speakers)
+            if (this.lastAgentMessage && transcript.trim().length > 3) {
+                const cleanLast = this.lastAgentMessage.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+                const cleanTranscript = transcript.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+                if (cleanLast.includes(cleanTranscript) || cleanTranscript.includes(cleanLast)) {
+                    console.log(`🔇 Filtered acoustic echo of agent's own voice: "${transcript}"`);
+                    this.isProcessing = false;
+                    this.io.to(this.callId).emit('agent-state', 'idle');
+                    return;
+                }
+            }
+
             // Mark this turn as an interruption if the agent was speaking
             this.wasInterrupted = this.isAgentSpeaking;
 

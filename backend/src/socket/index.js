@@ -188,10 +188,13 @@ export function initSocket(server) {
             }
         });
 
-        // Legacy: still accept streaming audio chunks for backward compatibility
-        socket.on('audio-chunk', ({ callId, chunk }) => {
-            // No longer used with Whisper — VAD on client sends complete blobs
-            // Kept for potential future use
+        // Receive direct text message from visitor (chat / voice fallback)
+        socket.on('user-message', async ({ callId, text }) => {
+            const orchestrator = orchestrators.get(callId);
+            if (orchestrator && text && text.trim()) {
+                console.log(`💬 [${callId}] Received text message from user: "${text.trim()}"`);
+                await orchestrator.handleUserSpeech(text.trim(), orchestrator.currentLanguage || 'en');
+            }
         });
 
         // Frontend signals that agent audio finished playing

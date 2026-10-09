@@ -61,8 +61,8 @@ async def transcribe(
             segs, inf = whisper_model.transcribe(
                 tmp_path,
                 language=language if language != "auto" else None,
-                beam_size=5,       # Increased to 5 for much higher transcription accuracy
-                vad_filter=True,   
+                beam_size=5,       # High beam size for best accuracy
+                vad_filter=False,  # Audio is already segmented by client VAD; avoid dropping quiet speech
                 condition_on_previous_text=False,
             )
             return list(segs), inf  # materialize generator before leaving thread
