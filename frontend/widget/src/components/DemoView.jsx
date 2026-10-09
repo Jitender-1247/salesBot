@@ -158,6 +158,16 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages, displayedText, userText]);
 
+    // Safeguard: auto-clear processing state after 7 seconds if no active stream arrives
+    useEffect(() => {
+        if (agentState === 'processing') {
+            const timer = setTimeout(() => {
+                setAgentState('idle');
+            }, 7000);
+            return () => clearTimeout(timer);
+        }
+    }, [agentState]);
+
     // Socket event listeners
     useEffect(() => {
         if (!socket) return;
@@ -191,15 +201,16 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
                     setDisplayedText('');
                 }
                 setIsSpeaking(false);
+                setAgentState('idle');
             }
         };
 
         const onAgentThinking = (thinking) => {
-            if (thinking) setAgentState('processing');
+            setAgentState(thinking ? 'processing' : 'idle');
         };
 
         const onAgentState = (state) => {
-            setAgentState(state);
+            setAgentState(state || 'idle');
         };
 
         const onUserTranscript = (data) => {

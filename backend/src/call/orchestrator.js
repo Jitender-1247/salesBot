@@ -364,18 +364,10 @@ export class CallOrchestrator {
                     }
                 }
 
-                // If we force-stopped due to repetition, break now
-                if (decision.finish_reason === 'stop' && stepCount > 1 && !responseText) {
-                    console.log('🛑 Stopping due to detected loop — no new content.');
-                    break;
-                }
-
-                // If agent wants to wait (finish_reason is stop), break the loop
-                if (decision.finish_reason === 'stop') {
-                    console.log('🛑 Agent finished sequence, waiting for user.');
-                    this.startIdleTimer(); // Start idle timer while waiting for user
-                    break;
-                }
+                // Turn complete: once the agent has spoken and executed actions, wait for user response
+                console.log('🛑 Agent finished sequence, waiting for user.');
+                this.startIdleTimer();
+                break;
             }
 
             if (stepCount >= maxSteps) {
@@ -395,6 +387,7 @@ export class CallOrchestrator {
             this.isProcessing = false;
             this.interruptRequested = false;
             this.currentSpeechController = null;
+            this.io.to(this.callId).emit('agent-thinking', false);
             this.io.to(this.callId).emit('agent-state', 'idle');
 
             if (this.pendingUserTurn) {
@@ -502,6 +495,8 @@ export class CallOrchestrator {
 
     async checkSessionTimeout() {
         if (!this.isActive || !this.navigator || !this.navigator.page) return;
+        // Only check logout if credentials are configured for this product
+        if (!this.product.credentials?.email || !this.product.credentials?.password) return;
 
         // Check if the target site logged us out (session cookie expired)
         const loggedOut = await this.navigator.checkIfLoggedOut(this.product.url);
@@ -514,8 +509,6 @@ export class CallOrchestrator {
                 this.product.credentials?.password ? decrypt(this.product.credentials.password) : ''
             );
         }
-        // Note: Hard session duration limit is now enforced by sessionTimer in start().
-        // The old 30-minute soft check has been removed.
     }
 
     async end(prospectEmail = '', prospectName = '', status = 'completed', endReason = 'user') {
