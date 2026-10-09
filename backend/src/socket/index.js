@@ -152,15 +152,15 @@ export function initSocket(server) {
                                 type: 'jpeg',
                                 quality: 50
                             });
-                            // Send as base64 data URL — works reliably across all transports
-                            const dataUrl = `data:image/jpeg;base64,${screenshot.toString('base64')}`;
+                            // Send raw base64 so both existing and updated widget clients format it safely
+                            const rawBase64 = screenshot.toString('base64');
                             frameCount++;
                             if (frameCount === 1 || frameCount % 10 === 0) {
                                 console.log(`📸 [${callId}] Emitted screenshot frame #${frameCount} (${(screenshot.length / 1024).toFixed(1)} KB)`);
                             }
                             // Emit directly to caller socket AND to room for reliability
-                            socket.emit('screen-update', { image: dataUrl });
-                            io.to(callId).emit('screen-update', { image: dataUrl });
+                            socket.emit('screen-update', { image: rawBase64 });
+                            io.to(callId).emit('screen-update', { image: rawBase64 });
                         } else {
                             if (frameCount === 0) {
                                 console.log(`⏳ [${callId}] Navigator page not available yet for screenshot`);

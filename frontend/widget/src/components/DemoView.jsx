@@ -401,16 +401,21 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
                             <span className="agent-status-text">{stateLabels[agentState] || 'Ready'}</span>
                         </div>
 
-                        {screenImage ? (
-                            <img
-                                src={
-                                    typeof screenImage === 'string' && (screenImage.startsWith('data:') || screenImage.startsWith('blob:'))
-                                        ? screenImage
-                                        : `data:image/jpeg;base64,${screenImage}`
-                                }
-                                alt="Live demo screen"
-                            />
-                        ) : (
+                        {screenImage ? (() => {
+                            let s = typeof screenImage === 'string' ? screenImage.trim() : '';
+                            while (s.startsWith('data:image/jpeg;base64,data:image/jpeg;base64,')) {
+                                s = s.substring('data:image/jpeg;base64,'.length);
+                            }
+                            const validSrc = (s.startsWith('data:') || s.startsWith('blob:'))
+                                ? s
+                                : `data:image/jpeg;base64,${s}`;
+                            return (
+                                <img
+                                    src={validSrc}
+                                    alt="Live demo screen"
+                                />
+                            );
+                        })() : (
                             <div className="screen-placeholder">
                                 <div className="screen-placeholder-icon">🖥️</div>
                                 <p>Loading live product screen...</p>
