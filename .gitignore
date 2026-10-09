@@ -14,7 +14,7 @@ frontend/dashboard/.env.local
 
 # Build outputs
 # frontend/widget/dist/
-frontend/dashboard/dist/
+# frontend/dashboard/dist/
 
 # Python
 __pycache__/
