@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # ── Redis (Session state, Socket.IO adapter, concurrency queue) ──
   redis:
@@ -53,6 +51,8 @@ services:
     command: [ "python", "stt_server.py" ]
     ports:
       - "8787:8787"
+    volumes:
+      - ./servers:/app
     restart: unless-stopped
     # Use host IPC for better performance with local models if needed
     ipc: host
@@ -64,6 +64,8 @@ services:
     command: [ "python", "tts_server.py" ]
     ports:
       - "8000:8000"
+    volumes:
+      - ./servers:/app
     restart: unless-stopped
     # No exposed API key needed since it uses edge-tts
 
@@ -78,6 +80,8 @@ services:
       - TTS_BASE_URL=http://tts-server:8000
     depends_on:
       - tts-server
+    volumes:
+      - ./servers:/app
     restart: unless-stopped
 
 volumes:

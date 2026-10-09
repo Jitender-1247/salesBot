@@ -53,7 +53,6 @@ function LocalAvatar({ speaking, onReady }) {
                 </>
             )}
 
-            {/* Avatar circle with video */}
             <div style={{
                 width: '100px', height: '100px', borderRadius: '50%',
                 overflow: 'hidden',
@@ -67,23 +66,12 @@ function LocalAvatar({ speaking, onReady }) {
                 flexShrink: 0,
                 position: 'relative',
             }}>
-                <video
-                    ref={videoRef}
-                    autoPlay
-                    loop
-                    muted
-                    playsInline
+                <img
+                    src="/widget/alex-avatar.png"
+                    alt="Sofia"
                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                    src="https://cdn.coverr.co/videos/coverr-woman-working-at-desk-4222/1080p.mp4"
-                    onError={(e) => { e.target.style.display = 'none'; }}
+                    onError={(e) => { e.target.src = '/alex-avatar.png'; }}
                 />
-                {/* Emoji fallback if video fails */}
-                <div style={{
-                    position: 'absolute', inset: 0, display: 'flex',
-                    alignItems: 'center', justifyContent: 'center',
-                    fontSize: '3.2rem',
-                    background: 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)',
-                }}>👩‍💼</div>
             </div>
 
             {/* Name label */}
@@ -367,9 +355,8 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
             {!isAvatarReady && (
                 <div className="demo-loading-overlay">
                     <div className="demo-loading-card">
-                        <div className="demo-loading-avatar-icon">
-                            <div className="pulsing-glow" />
-                            👩‍💼
+                        <div className="demo-loading-avatar-icon" style={{ overflow: 'hidden', padding: 0 }}>
+                            <img src="/widget/alex-avatar.png" alt="Sofia" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} onError={(e) => { e.target.src = '/alex-avatar.png'; }} />
                         </div>
                         <h2 className="demo-loading-title">Connecting Live AI Agent</h2>
                         <p className="demo-loading-subtitle">

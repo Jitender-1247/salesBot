@@ -19,11 +19,11 @@ const TTS_BASE_URL = process.env.TTS_BASE_URL || 'http://localhost:8000';
  * @returns {Promise<Buffer>}
  */
 export async function speak(text, signal) {
-    try {
-        console.log(`🔊 TTS: "${text.substring(0, 60)}..."`);
+    console.log(`🔊 TTS: "${text.substring(0, 60)}..."`);
 
-        if (ELEVENLABS_API_KEY) {
-            // ── ElevenLabs (Primary — most natural, Sofia-like voice) ──
+    // ── 1. ElevenLabs (Primary if configured) ──
+    if (ELEVENLABS_API_KEY && !ELEVENLABS_API_KEY.includes('your-eleven')) {
+        try {
             const response = await fetch(
                 `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`,
                 {
@@ -48,18 +48,24 @@ export async function speak(text, signal) {
                 }
             );
 
-            if (!response.ok) {
+            if (response.ok) {
+                const arrayBuffer = await response.arrayBuffer();
+                const buffer = Buffer.from(arrayBuffer);
+                console.log(`✅ [ElevenLabs] TTS audio: ${buffer.length} bytes`);
+                return buffer;
+            } else {
                 const err = await response.text();
-                throw new Error(`ElevenLabs TTS error: ${response.status} — ${err.slice(0, 200)}`);
+                console.warn(`⚠️ ElevenLabs TTS ${response.status}: ${err.slice(0, 100)} — falling back`);
             }
+        } catch (err) {
+            if (err.name === 'AbortError') throw err;
+            console.warn(`⚠️ ElevenLabs error: ${err.message} — falling back`);
+        }
+    }
 
-            const arrayBuffer = await response.arrayBuffer();
-            const buffer = Buffer.from(arrayBuffer);
-            console.log(`✅ [ElevenLabs] TTS audio: ${buffer.length} bytes`);
-            return buffer;
-
-        } else if (OPENAI_API_KEY) {
-            // ── OpenAI TTS (Secondary) ──
+    // ── 2. OpenAI TTS (Secondary) ──
+    if (OPENAI_API_KEY && !OPENAI_API_KEY.includes('your-openai')) {
+        try {
             const response = await fetch('https://api.openai.com/v1/audio/speech', {
                 method: 'POST',
                 headers: {
@@ -76,43 +82,46 @@ export async function speak(text, signal) {
                 signal,
             });
 
-            if (!response.ok) {
-                throw new Error(`OpenAI TTS error: ${response.status}`);
+            if (response.ok) {
+                const arrayBuffer = await response.arrayBuffer();
+                const buffer = Buffer.from(arrayBuffer);
+                console.log(`✅ [OpenAI TTS] audio: ${buffer.length} bytes`);
+                return buffer;
+            } else {
+                console.warn(`⚠️ OpenAI TTS ${response.status} — falling back to local TTS`);
             }
+        } catch (err) {
+            if (err.name === 'AbortError') throw err;
+            console.warn(`⚠️ OpenAI TTS error: ${err.message} — falling back to local TTS`);
+        }
+    }
 
-            const arrayBuffer = await response.arrayBuffer();
-            const buffer = Buffer.from(arrayBuffer);
-            console.log(`✅ [OpenAI TTS] audio: ${buffer.length} bytes`);
-            return buffer;
+    // ── 3. Local TTS server (Always reliable Edge-TTS) ──
+    try {
+        const response = await fetch(`${TTS_BASE_URL}/v1/audio/speech`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model: 'tts-1',
+                input: text,
+                voice: 'alloy',
+                speed: 1.0,
+                response_format: 'mp3'
+            }),
+            signal,
+        });
 
-        } else {
-            // ── Local TTS server (fallback) ──
-            const response = await fetch(`${TTS_BASE_URL}/v1/audio/speech`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    model: 'tts-1',
-                    input: text,
-                    voice: 'alloy',
-                    speed: 1.0,
-                    response_format: 'mp3'
-                }),
-                signal,
-            });
-
-            if (!response.ok) {
-                throw new Error(`Local TTS error: ${response.status}`);
-            }
-
+        if (response.ok) {
             const arrayBuffer = await response.arrayBuffer();
             const buffer = Buffer.from(arrayBuffer);
             console.log(`✅ [Local TTS] audio: ${buffer.length} bytes`);
             return buffer;
+        } else {
+            throw new Error(`Local TTS error: ${response.status}`);
         }
-
     } catch (err) {
         if (err.name === 'AbortError') throw err;
-        console.log('❌ TTS error:', err.message);
+        console.error('❌ All TTS providers failed:', err.message);
         throw err;
     }
 }

@@ -241,11 +241,11 @@ export class CallOrchestrator {
                 return;
             }
 
-            // Filter out acoustic echo from the agent's own speech (mic picking up speakers)
-            if (this.lastAgentMessage && transcript.trim().length > 3) {
+            // Filter out acoustic echo ONLY if Sofia was actively speaking during capture AND transcript is a long duplicate
+            if (this.isAgentSpeaking && this.lastAgentMessage && transcript.trim().length > 15) {
                 const cleanLast = this.lastAgentMessage.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
                 const cleanTranscript = transcript.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
-                if (cleanLast.includes(cleanTranscript) || cleanTranscript.includes(cleanLast)) {
+                if (cleanLast.includes(cleanTranscript) && cleanTranscript.length > 20) {
                     console.log(`🔇 Filtered acoustic echo of agent's own voice: "${transcript}"`);
                     this.isProcessing = false;
                     this.io.to(this.callId).emit('agent-state', 'idle');
@@ -412,17 +412,17 @@ export class CallOrchestrator {
         }
     }
 
-    async waitForAudioPlayback() {
+    async waitForAudioPlayback(timeoutMs = 12000) {
         return new Promise(resolve => {
-            this.audioPlaybackResolver = resolve;
-            // Add a timeout just in case the frontend misses the event or disconnects
-            setTimeout(() => {
-                if (this.audioPlaybackResolver) {
-                    console.log('Audio playback wait timeout');
-                    this.audioPlaybackResolver();
-                    this.audioPlaybackResolver = null;
-                }
-            }, 15000); // Wait up to 15 seconds
+            let timer = null;
+            this.audioPlaybackResolver = () => {
+                if (timer) clearTimeout(timer);
+                resolve();
+            };
+            timer = setTimeout(() => {
+                this.audioPlaybackResolver = null;
+                resolve();
+            }, timeoutMs);
         });
     }
 
@@ -443,10 +443,7 @@ export class CallOrchestrator {
 
             // ── Send speak payload to Keyframe Python agent if connected in room ──
             const payload = JSON.stringify({ type: 'speak', text });
-            let keyframeSuccess = false;
-
             try {
-                // Check if Keyframe agent participant is actually in the LiveKit room
                 const participants = await this.livekitRoomSvc.listParticipants(this.roomName);
                 const hasKeyframe = participants && participants.some(
                     p => p.identity === 'keyframe-avatar' || (p.identity && p.identity.includes('keyframe'))
@@ -458,34 +455,29 @@ export class CallOrchestrator {
                         Buffer.from(payload),
                         0 // RELIABLE delivery
                     );
-                    keyframeSuccess = true;
                     console.log(`📡 Sent speak data to Keyframe agent: "${text.substring(0, 60)}..."`);
-                } else {
-                    console.log(`ℹ️ Keyframe agent not in room — falling back to direct TTS audio`);
                 }
             } catch (e) {
-                console.log(`ℹ️ Keyframe check/sendData error (will fallback to direct socket audio): ${e.message}`);
+                console.log(`ℹ️ Keyframe check/sendData notice: ${e.message}`);
             }
 
-            // ── Fallback direct socket audio whenever Keyframe is offline ──
+            // ── Generate and emit direct TTS audio via Socket.IO for guaranteed audio delivery ──
             let audioBuffer = null;
-            if (!keyframeSuccess) {
-                try {
-                    audioBuffer = await speak(text, controller.signal);
-                    if (audioBuffer && audioBuffer.length > 0) {
-                        this.io.to(this.callId).emit('agent-audio', audioBuffer);
-                        console.log(`🔊 [Direct Audio] Sent ${audioBuffer.length} bytes of audio via socket`);
-                    }
-                } catch (ttsErr) {
-                    if (ttsErr.name !== 'AbortError') {
-                        console.log('⚠️ TTS generation failed:', ttsErr.message);
-                    }
+            try {
+                audioBuffer = await speak(text, controller.signal);
+                if (audioBuffer && audioBuffer.length > 0) {
+                    this.io.to(this.callId).emit('agent-audio', audioBuffer);
+                    console.log(`🔊 [Direct Audio] Sent ${audioBuffer.length} bytes of audio via socket`);
+                }
+            } catch (ttsErr) {
+                if (ttsErr.name !== 'AbortError') {
+                    console.warn(`⚠️ TTS generation failed: ${ttsErr.message}`);
                 }
             }
 
-            // Wait for audio speech to complete
-            const estimatedMs = Math.max(1800, (text.length / 5) * 380);
-            await new Promise(resolve => setTimeout(resolve, estimatedMs));
+            // Wait for audio speech to complete via frontend event or dynamic timeout
+            const timeoutMs = Math.max(2500, Math.ceil((text.length / 14) * 1000) + 1200);
+            await this.waitForAudioPlayback(timeoutMs);
 
             if (this.interruptRequested && interruptId < this.speechSequence) {
                 this.io.to(this.callId).emit('agent-speaking', { text, speaking: false, interrupted: true });
@@ -494,10 +486,13 @@ export class CallOrchestrator {
 
             this.isAgentSpeaking = false;
             this.io.to(this.callId).emit('agent-speaking', { text, speaking: false, interrupted: false });
+            this.io.to(this.callId).emit('agent-state', 'idle');
 
         } catch (err) {
             console.log('❌ Agent speak error:', err.message);
             this.isAgentSpeaking = false;
+            this.io.to(this.callId).emit('agent-speaking', { text, speaking: false, interrupted: false });
+            this.io.to(this.callId).emit('agent-state', 'idle');
         } finally {
             if (this.currentSpeechController && this.currentSpeechController.signal.aborted) {
                 this.currentSpeechController = null;

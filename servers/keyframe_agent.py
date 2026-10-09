@@ -144,6 +144,9 @@ async def fetch_mp3_and_push_frames(text: str, audio_output: DataStreamAudioOutp
         bytes_per_sample = 2  # 16-bit
         chunk_bytes = CHUNK_SAMPLES * bytes_per_sample
 
+        loop = asyncio.get_running_loop()
+        start_time = loop.time()
+
         for offset in range(0, len(pcm_bytes), chunk_bytes):
             chunk = pcm_bytes[offset:offset + chunk_bytes]
             if len(chunk) < chunk_bytes:
@@ -156,10 +159,29 @@ async def fetch_mp3_and_push_frames(text: str, audio_output: DataStreamAudioOutp
             )
             await audio_output.capture_frame(frame)
             frame_count += 1
-            await asyncio.sleep(0)
+
+            # Real-time frame pacing: 50ms per frame to prevent buffer overflow in Keyframe pipeline
+            target_time = start_time + (frame_count * 0.05)
+            wait_time = target_time - loop.time()
+            if wait_time > 0:
+                await asyncio.sleep(wait_time)
+
+        # Mark end of utterance segment
+        if hasattr(audio_output, 'flush'):
+            try:
+                audio_output.flush()
+            except Exception:
+                pass
 
         logger.info(f"Pushed {frame_count} audio frames to Keyframe for: '{text[:40]}'")
 
+    except asyncio.CancelledError:
+        logger.info("Speech task cancelled due to new utterance or interruption")
+        if hasattr(audio_output, 'clear_buffer'):
+            try:
+                audio_output.clear_buffer()
+            except Exception:
+                pass
     except Exception as e:
         logger.error(f"Error in fetch_mp3_and_push_frames: {e}", exc_info=True)
 
@@ -172,23 +194,43 @@ async def entrypoint(ctx: JobContext):
     logger.info(f'Keyframe agent connected to room: {room.name}')
 
     session = agents.AgentSession()
+    avatar = None
+    audio_output = None
+    current_speech_task = None
 
-    # ── Start Keyframe Avatar Session ──
-    if KEYFRAME_PERSONA_SLUG:
-        logger.info(f'Using Keyframe persona slug: {KEYFRAME_PERSONA_SLUG}')
-        avatar = keyframe.AvatarSession(persona_slug=KEYFRAME_PERSONA_SLUG)
-    else:
-        logger.info(f'Using custom Keyframe persona ID: {KEYFRAME_PERSONA_ID}')
-        avatar = keyframe.AvatarSession(persona_id=KEYFRAME_PERSONA_ID)
+    async def start_or_restart_avatar():
+        nonlocal avatar, audio_output
+        try:
+            logger.info('🚀 Starting Keyframe Avatar Session...')
+            if KEYFRAME_PERSONA_SLUG:
+                logger.info(f'Using Keyframe persona slug: {KEYFRAME_PERSONA_SLUG}')
+                avatar = keyframe.AvatarSession(persona_slug=KEYFRAME_PERSONA_SLUG)
+            else:
+                logger.info(f'Using custom Keyframe persona ID: {KEYFRAME_PERSONA_ID}')
+                avatar = keyframe.AvatarSession(persona_id=KEYFRAME_PERSONA_ID)
 
-    await avatar.start(session, room=room)
-    logger.info('✅ Keyframe avatar session started — video & audio publishing to LiveKit room.')
+            await avatar.start(session, room=room)
+            audio_output = session.output.audio
+            logger.info('✅ Keyframe avatar session started — video & audio publishing to LiveKit room.')
+            return avatar
+        except Exception as e:
+            logger.error(f'❌ Failed to start Keyframe avatar session: {e}', exc_info=True)
+            return None
 
-    audio_output = session.output.audio
+    # Initial avatar session start
+    await start_or_restart_avatar()
+
+    # ── Auto-reconnect if Keyframe avatar participant disconnects in between ──
+    @room.on("participant_disconnected")
+    def on_participant_disconnected(participant: rtc.RemoteParticipant):
+        if avatar and participant.identity == avatar.avatar_identity:
+            logger.warning(f"⚠️ Keyframe avatar participant {participant.identity} disconnected! Auto-reconnecting to keep avatar alive...")
+            asyncio.create_task(start_or_restart_avatar())
 
     # ── Listen for speak commands from Node.js backend ──
     @room.on("data_received")
     def on_data_received(data_packet: rtc.DataPacket):
+        nonlocal current_speech_task
         try:
             payload = json.loads(data_packet.data.decode('utf-8'))
         except (json.JSONDecodeError, UnicodeDecodeError):
@@ -196,9 +238,16 @@ async def entrypoint(ctx: JobContext):
 
         if payload.get('type') == 'speak':
             text = payload.get('text', '').strip()
-            if text:
+            if text and audio_output:
                 logger.info(f"Speak command received: {text[:80]}")
-                asyncio.create_task(fetch_mp3_and_push_frames(text, audio_output))
+                if current_speech_task and not current_speech_task.done():
+                    current_speech_task.cancel()
+                    if hasattr(audio_output, 'clear_buffer'):
+                        try:
+                            audio_output.clear_buffer()
+                        except Exception:
+                            pass
+                current_speech_task = asyncio.create_task(fetch_mp3_and_push_frames(text, audio_output))
 
     logger.info('Keyframe agent ready — listening for speak commands.')
     await asyncio.Event().wait()

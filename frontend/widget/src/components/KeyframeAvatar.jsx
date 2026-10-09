@@ -78,8 +78,8 @@ function KeyframeVideoTrack({ speaking, onReady }) {
                 <div className={`avatar-animated-fallback ${speaking ? 'speaking' : ''}`} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
                     <div className={`avatar-ring ${speaking ? 'active' : ''}`} />
                     <div className={`avatar-ring avatar-ring-2 ${speaking ? 'active' : ''}`} />
-                    <div className="avatar-photo-wrapper" style={{ width: '90px', height: '90px', borderRadius: '50%', background: 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '3rem', border: '3px solid rgba(167, 139, 250, 0.4)', boxShadow: '0 8px 32px rgba(124, 58, 237, 0.3)' }}>
-                        👩‍💼
+                    <div className="avatar-photo-wrapper" style={{ width: '96px', height: '96px', borderRadius: '50%', overflow: 'hidden', border: speaking ? '3px solid #8b5cf6' : '3px solid rgba(167, 139, 250, 0.5)', boxShadow: speaking ? '0 0 24px rgba(139, 92, 246, 0.6)' : '0 8px 32px rgba(124, 58, 237, 0.3)', transition: 'all 0.3s ease' }}>
+                        <img src="/widget/alex-avatar.png" alt="Sofia" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.src = '/alex-avatar.png'; }} />
                     </div>
                 </div>
             )}
@@ -94,7 +94,8 @@ function KeyframeVideoTrack({ speaking, onReady }) {
 
 /**
  * KeyframeAvatar
- * Connects to LiveKit room and streams live 3D avatar video & audio.
+ * Connects to LiveKit room and streams live 3D avatar video.
+ * Audio is handled with 100% reliability via direct socket player.
  */
 export default function KeyframeAvatar({ livekitUrl, token, speaking, onReady }) {
     const roomOptions = useMemo(() => ({
@@ -115,7 +116,9 @@ export default function KeyframeAvatar({ livekitUrl, token, speaking, onReady })
         return (
             <div className="avatar-3d-container" style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}>
                 <div className="avatar-fallback-wrapper" style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.05)' }}>
-                    <div className="landing-avatar" style={{ fontSize: '3rem' }}>👩‍💼</div>
+                    <div style={{ width: '96px', height: '96px', borderRadius: '50%', overflow: 'hidden', border: '3px solid rgba(167, 139, 250, 0.4)' }}>
+                        <img src="/widget/alex-avatar.png" alt="Sofia" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.src = '/alex-avatar.png'; }} />
+                    </div>
                 </div>
             </div>
         );
@@ -126,7 +129,7 @@ export default function KeyframeAvatar({ livekitUrl, token, speaking, onReady })
             serverUrl={livekitUrl}
             token={token}
             connect={true}
-            audio={true}
+            audio={false}
             video={false}
             options={roomOptions}
             onError={(err) => {
@@ -139,7 +142,6 @@ export default function KeyframeAvatar({ livekitUrl, token, speaking, onReady })
             }}
             style={{ display: 'contents' }}
         >
-            <RoomAudioRenderer />
             <KeyframeVideoTrack speaking={speaking} onReady={onReady} />
         </LiveKitRoom>
     );

@@ -1,10 +1,10 @@
 import { useRef, useCallback, useEffect, useState } from 'react';
 
-// VAD thresholds — tuned for typical laptop/headset mic
+// VAD thresholds — tuned for conversational voice and laptop/headset mics
 const SILENCE_THRESHOLD       = 0.007; // below this = silence
-const SPEECH_THRESHOLD        = 0.016; // above this = speech (sensitive to conversational voice)
-const SILENCE_DURATION_MS     = 850;   // ms of silence before utterance finishes
-const MIN_SPEECH_DURATION_MS  = 350;   // minimum speech length to send
+const SPEECH_THRESHOLD        = 0.013; // above this = speech (sensitive to natural voice)
+const SILENCE_DURATION_MS     = 800;   // ms of silence before utterance finishes
+const MIN_SPEECH_DURATION_MS  = 180;   // minimum speech length to send (captures short 'yes', 'hi', 'shoes')
 const SPEECH_CONFIRM_TICKS    = 2;     // consecutive ticks above threshold before recording starts
 
 export default function AudioRecorder({
@@ -49,10 +49,10 @@ export default function AudioRecorder({
     useEffect(() => { isSpeakingRef.current          = isSpeaking;          }, [isSpeaking]);
     useEffect(() => { disabledRef.current            = disabled;            }, [disabled]);
 
-    // Acoustic Echo Guard: When agent stops speaking, add 600ms buffer so room reverberation doesn't trigger mic
+    // Acoustic Echo Guard: Brief 200ms buffer after Sofia finishes speaking
     useEffect(() => {
         if (!isSpeaking) {
-            echoCooldownRef.current = Date.now() + 600;
+            echoCooldownRef.current = Date.now() + 200;
         }
     }, [isSpeaking]);
 
@@ -138,8 +138,25 @@ export default function AudioRecorder({
 
         const now = Date.now();
 
-        // ── Echo suppression: ignore speaker feedback while Sofia is speaking or in cooldown ──
-        if (isSpeakingRef.current || now < echoCooldownRef.current) {
+        // ── Voice interruption: If user speaks clearly while Sofia is speaking, trigger interrupt ──
+        if (isSpeakingRef.current) {
+            if (vol > 0.038) {
+                speechConfirmRef.current += 1;
+                if (speechConfirmRef.current >= 2) {
+                    onInterruptRef.current?.();
+                    startCapture();
+                    speechConfirmRef.current = 0;
+                    return;
+                }
+            } else {
+                speechConfirmRef.current = 0;
+            }
+            silenceStartRef.current = null;
+            return;
+        }
+
+        // ── Echo cooldown: brief buffer so speaker output reverberation isn't picked up ──
+        if (now < echoCooldownRef.current) {
             silenceStartRef.current = null;
             speechConfirmRef.current = 0;
             return;
