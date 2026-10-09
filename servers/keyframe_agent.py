@@ -268,6 +268,8 @@ if __name__ == '__main__':
             entrypoint_fnc=entrypoint,
             agent_name='keyframe-avatar',
             worker_type=agents.WorkerType.ROOM,
+            num_idle_processes=0,
+            initialize_process_timeout=60.0,
             ws_url=lk_url if (lk_url and 'your-livekit-url' not in lk_url) else None,
             api_key=lk_key if (lk_key and 'your-api-key' not in lk_key) else None,
             api_secret=lk_secret if (lk_secret and 'your-api-secret' not in lk_secret) else None,
