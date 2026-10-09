@@ -402,13 +402,12 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
                         </div>
 
                         {screenImage ? (() => {
-                            let s = typeof screenImage === 'string' ? screenImage.trim() : '';
-                            while (s.startsWith('data:image/jpeg;base64,data:image/jpeg;base64,')) {
-                                s = s.substring('data:image/jpeg;base64,'.length);
-                            }
-                            const validSrc = (s.startsWith('data:') || s.startsWith('blob:'))
+                            if (typeof screenImage !== 'string') return null;
+                            const s = screenImage.trim();
+                            if (!s) return null;
+                            const validSrc = (s.startsWith('blob:') || s.startsWith('http://') || s.startsWith('https://'))
                                 ? s
-                                : `data:image/jpeg;base64,${s}`;
+                                : `data:image/jpeg;base64,${s.replace(/^(data:image\/[a-zA-Z0-9.+_-]+;base64,)+/i, '')}`;
                             return (
                                 <img
                                     src={validSrc}

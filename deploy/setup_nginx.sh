@@ -1,37 +1,53 @@
 #!/bin/bash
 set -e
 
-echo "=== Deploying Frontends to /var/www/html ==="
+# Automatically resolve repository root directory regardless of where script is run from
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+echo "=== SalesBot Frontend & Nginx Deployment ==="
+echo "Repository root: $REPO_ROOT"
+
+# Ensure target directories exist
 sudo mkdir -p /var/www/html/widget
 sudo mkdir -p /var/www/html/dashboard
 
-# Clean old assets and copy fresh widget dist
-if [ -d "frontend/widget/dist" ]; then
-    echo "Cleaning and copying fresh Widget build..."
+# 1. Clean and deploy Widget
+if [ -d "$REPO_ROOT/frontend/widget/dist" ]; then
+    echo "Cleaning /var/www/html/widget and copying fresh build..."
     sudo rm -rf /var/www/html/widget/*
-    sudo cp -r frontend/widget/dist/* /var/www/html/widget/
+    sudo cp -r "$REPO_ROOT/frontend/widget/dist"/* /var/www/html/widget/
+    # Mirror to /var/www/widget as fallback
+    sudo mkdir -p /var/www/widget
+    sudo cp -r "$REPO_ROOT/frontend/widget/dist"/* /var/www/widget/ 2>/dev/null || true
+    echo "✅ Widget build deployed successfully!"
 else
-    echo "WARNING: frontend/widget/dist not found."
+    echo "❌ ERROR: $REPO_ROOT/frontend/widget/dist not found!"
+    exit 1
 fi
 
-# Clean old assets and copy fresh dashboard dist
-if [ -d "frontend/dashboard/dist" ]; then
-    echo "Cleaning and copying fresh Dashboard build..."
+# 2. Clean and deploy Dashboard
+if [ -d "$REPO_ROOT/frontend/dashboard/dist" ]; then
+    echo "Cleaning /var/www/html/dashboard and copying fresh build..."
     sudo rm -rf /var/www/html/dashboard/*
-    sudo cp -r frontend/dashboard/dist/* /var/www/html/dashboard/
+    sudo cp -r "$REPO_ROOT/frontend/dashboard/dist"/* /var/www/html/dashboard/
+    # Mirror to /var/www/dashboard as fallback
+    sudo mkdir -p /var/www/dashboard
+    sudo cp -r "$REPO_ROOT/frontend/dashboard/dist"/* /var/www/dashboard/ 2>/dev/null || true
+    echo "✅ Dashboard build deployed successfully!"
 else
-    echo "WARNING: frontend/dashboard/dist not found."
+    echo "❌ ERROR: $REPO_ROOT/frontend/dashboard/dist not found!"
+    exit 1
 fi
 
-# Fix permissions
+# 3. Set proper ownership and permissions
 sudo chown -R www-data:www-data /var/www/html
 sudo chmod -R 755 /var/www/html
 
-# Apply Nginx config
-echo "=== Configuring Nginx ==="
-sudo cp deploy/nginx.conf /etc/nginx/sites-available/default
+# 4. Reload Nginx
+echo "Reloading Nginx..."
 sudo nginx -t
-sudo systemctl reload nginx
+sudo systemctl reload nginx || sudo systemctl restart nginx
 
+echo ""
 echo "=== Successfully Deployed Widget & Dashboard! ==="

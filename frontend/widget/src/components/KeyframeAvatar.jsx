@@ -129,6 +129,14 @@ export default function KeyframeAvatar({ livekitUrl, token, speaking, onReady })
             audio={true}
             video={false}
             options={roomOptions}
+            onError={(err) => {
+                console.warn('[Keyframe] LiveKit connection note:', err?.message || err);
+                onReady?.();
+            }}
+            onDisconnected={() => {
+                console.log('[Keyframe] LiveKit room disconnected');
+                onReady?.();
+            }}
             style={{ display: 'contents' }}
         >
             <RoomAudioRenderer />
