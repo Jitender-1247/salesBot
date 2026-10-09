@@ -423,30 +423,40 @@ export class CallOrchestrator {
                 return;
             }
 
-            // ── Send speak payload to Keyframe Python agent for real-time lip-synced audio & video ──
+            // ── Send speak payload to Keyframe Python agent if connected in room ──
             const payload = JSON.stringify({ type: 'speak', text });
             let keyframeSuccess = false;
 
             try {
-                await this.livekitRoomSvc.sendData(
-                    this.roomName,
-                    Buffer.from(payload),
-                    0 // RELIABLE delivery
+                // Check if Keyframe agent participant is actually in the LiveKit room
+                const participants = await this.livekitRoomSvc.listParticipants(this.roomName);
+                const hasKeyframe = participants && participants.some(
+                    p => p.identity === 'keyframe-avatar' || (p.identity && p.identity.includes('keyframe'))
                 );
-                keyframeSuccess = true;
-                console.log(`📡 Sent speak data to Keyframe agent: "${text.substring(0, 60)}..."`);
+
+                if (hasKeyframe) {
+                    await this.livekitRoomSvc.sendData(
+                        this.roomName,
+                        Buffer.from(payload),
+                        0 // RELIABLE delivery
+                    );
+                    keyframeSuccess = true;
+                    console.log(`📡 Sent speak data to Keyframe agent: "${text.substring(0, 60)}..."`);
+                } else {
+                    console.log(`ℹ️ Keyframe agent not in room — falling back to direct TTS audio`);
+                }
             } catch (e) {
-                console.log(`ℹ️ Keyframe not in room (will fallback to direct socket audio): ${e.message}`);
+                console.log(`ℹ️ Keyframe check/sendData error (will fallback to direct socket audio): ${e.message}`);
             }
 
-            // ── Fallback direct socket audio ONLY if Keyframe is offline ──
+            // ── Fallback direct socket audio whenever Keyframe is offline ──
             let audioBuffer = null;
             if (!keyframeSuccess) {
                 try {
                     audioBuffer = await speak(text, controller.signal);
                     if (audioBuffer && audioBuffer.length > 0) {
                         this.io.to(this.callId).emit('agent-audio', audioBuffer);
-                        console.log(`🔊 [Fallback] Sent ${audioBuffer.length} bytes of audio via socket`);
+                        console.log(`🔊 [Direct Audio] Sent ${audioBuffer.length} bytes of audio via socket`);
                     }
                 } catch (ttsErr) {
                     if (ttsErr.name !== 'AbortError') {
