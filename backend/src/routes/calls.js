@@ -163,7 +163,30 @@ router.get('/:id', protect, async (req, res) => {
         }).populate('productId', 'name url');
 
         if (!call) return res.status(404).json({ message: 'Call not found' });
-        res.json(call);
+
+        const callObj = call.toObject();
+        if ((!callObj.messages || callObj.messages.length === 0) && callObj.transcript) {
+            const parsed = [];
+            const lines = callObj.transcript.split('\n').map(l => l.trim()).filter(Boolean);
+            for (const line of lines) {
+                if (line.startsWith('User:')) {
+                    parsed.push({
+                        role: 'user',
+                        content: line.replace(/^User:\s*/, ''),
+                        timestamp: callObj.createdAt
+                    });
+                } else if (line.startsWith('Agent:')) {
+                    parsed.push({
+                        role: 'agent',
+                        content: line.replace(/^Agent:\s*/, ''),
+                        timestamp: callObj.createdAt
+                    });
+                }
+            }
+            if (parsed.length > 0) callObj.messages = parsed;
+        }
+
+        res.json(callObj);
     } catch (err) {
         res.status(500).json({ message: 'Server error', error: err.message });
     }

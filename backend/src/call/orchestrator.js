@@ -27,6 +27,7 @@ export class CallOrchestrator {
         this.product = null;
         this.navigator = new Navigator();
         this.conversationHistory = [];
+        this.messages = [];
         this.currentLanguage = 'en';
         this.isAgentSpeaking = false;
         this.isProcessing = false;
@@ -179,7 +180,10 @@ export class CallOrchestrator {
         this.hasGreeted = true;
         
         console.log(`👋 Avatar is ready on frontend. Sending greeting...`);
-        await this.agentSpeak(`Hi! I'm Sofia. How can I assist you today?`);
+        const greeting = `Hi! I'm Sofia. How can I assist you today?`;
+        this.transcript += `\nAgent: ${greeting}`;
+        this.messages.push({ role: 'agent', content: greeting, timestamp: new Date() });
+        await this.agentSpeak(greeting);
     }
 
     /**
@@ -257,6 +261,7 @@ export class CallOrchestrator {
 
             this.currentLanguage = language || this.currentLanguage;
             this.transcript += `\nUser: ${transcript}`;
+            this.messages.push({ role: 'user', content: transcript, timestamp: new Date() });
 
             this.conversationHistory.push({
                 role: 'user',
@@ -316,6 +321,7 @@ export class CallOrchestrator {
                 const responseText = decision.message.content;
                 if (responseText) {
                     this.transcript += `\nAgent: ${responseText}`;
+                    this.messages.push({ role: 'agent', content: responseText, timestamp: new Date() });
                     this.conversationHistory.push({
                         role: 'assistant',
                         content: responseText
@@ -516,8 +522,9 @@ export class CallOrchestrator {
 
             const duration = Math.floor((Date.now() - this.startTime) / 1000);
 
-            // Analyze transcript for satisfaction + qualification (best-effort)
+            // Analyze transcript for satisfaction + qualification + summary
             const {
+                summary,
                 satisfaction,
                 satisfactionReason,
                 qualified,
@@ -526,6 +533,8 @@ export class CallOrchestrator {
 
             const update = {
                 transcript: this.transcript,
+                messages: this.messages,
+                summary: summary || '',
                 language: this.currentLanguage,
                 duration,
                 status,

@@ -14,6 +14,7 @@ const callSchema = new mongoose.Schema({
   transcript: { type: String, default: '' },
   language: { type: String, default: 'en' },
   duration: { type: Number, default: 0 },
+  summary: { type: String, default: '' },
 
   // Lead qualification
   qualified: { type: Boolean, default: false },

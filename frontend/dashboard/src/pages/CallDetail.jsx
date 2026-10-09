@@ -34,8 +34,27 @@ export default function CallDetail() {
         });
     };
 
+    const getMessages = () => {
+        if (!call) return [];
+        if (call.messages && call.messages.length > 0) return call.messages;
+        if (call.transcript) {
+            return call.transcript.split('\n').map(l => l.trim()).filter(Boolean).map((line, idx) => {
+                const isUser = line.startsWith('User:');
+                const isAgent = line.startsWith('Agent:');
+                if (!isUser && !isAgent) return null;
+                return {
+                    role: isUser ? 'user' : 'agent',
+                    content: line.replace(/^(User|Agent):\s*/, ''),
+                    timestamp: call.createdAt
+                };
+            }).filter(Boolean);
+        }
+        return [];
+    };
+
     const handleExportSingle = () => {
         if (!call) return;
+        const msgs = getMessages();
         const lines = [
             `SalesBot Session Report`,
             `========================`,
@@ -49,7 +68,7 @@ export default function CallDetail() {
             ``,
             `Transcript`,
             `----------`,
-            ...(call.messages || []).map(m =>
+            ...msgs.map(m =>
                 `[${formatTime(m.timestamp)}] ${m.role.toUpperCase()}: ${m.content}`
             )
         ];
@@ -176,18 +195,22 @@ export default function CallDetail() {
 
                 {/* Transcript */}
                 <div className="ultra-card p-6">
-                    <h2 className="font-bold text-sm mb-6" style={{ color: 'var(--text-main)' }}>
-                        Conversation Transcript
-                        <span className="text-xs font-normal ml-2" style={{ color: 'var(--text-muted)' }}>
-                            ({call.messages?.length || 0} messages)
-                        </span>
-                    </h2>
+                    {(() => {
+                        const msgs = getMessages();
+                        return (
+                            <>
+                                <h2 className="font-bold text-sm mb-6" style={{ color: 'var(--text-main)' }}>
+                                    Conversation Transcript
+                                    <span className="text-xs font-normal ml-2" style={{ color: 'var(--text-muted)' }}>
+                                        ({msgs.length} messages)
+                                    </span>
+                                </h2>
 
-                    {!call.messages || call.messages.length === 0 ? (
-                        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>No messages recorded for this session</p>
-                    ) : (
-                        <div className="space-y-4">
-                            {call.messages.map((m, i) => {
+                                {msgs.length === 0 ? (
+                                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>No messages recorded for this session</p>
+                                ) : (
+                                    <div className="space-y-4">
+                                        {msgs.map((m, i) => {
                                 const isUser = m.role === 'user';
                                 return (
                                     <div key={i} className={`flex gap-3 max-w-[80%] ${isUser ? 'ml-auto flex-row-reverse' : ''}`}>
@@ -219,8 +242,11 @@ export default function CallDetail() {
                                     </div>
                                 );
                             })}
-                        </div>
-                    )}
+                                </div>
+                            )}
+                        </>
+                    );
+                })()}
                 </div>
             </main>
         </div>

@@ -52,8 +52,11 @@ Make TWO independent judgments:
    - true: asked about pricing, "how do I sign up", requested a follow-up call, asked for a sales contact, compared features for a real use case, mentioned a budget or timeline
    - false: just browsing/exploring, no buying signals, testing or development context
 
+3. SUMMARY — A concise 1-2 sentence overview of what the demo covered and what the visitor asked.
+
 Respond with ONLY a JSON object (no markdown, no extra text):
 {
+  "summary": "1-2 sentence summary of the demo session",
   "satisfaction": "positive" | "neutral" | "negative",
   "satisfactionReason": "one short sentence",
   "qualified": true | false,
@@ -67,7 +70,7 @@ Respond with ONLY a JSON object (no markdown, no extra text):
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: transcript.slice(0, 4000) }
             ],
-            max_tokens: 200,
+            max_tokens: 350,
             temperature: 0.2
         });
 
@@ -81,6 +84,7 @@ Respond with ONLY a JSON object (no markdown, no extra text):
             : 'unknown';
 
         return {
+            summary: (parsed.summary || '').slice(0, 500),
             satisfaction,
             satisfactionReason: (parsed.satisfactionReason || '').slice(0, 300),
             qualified: Boolean(parsed.qualified),
