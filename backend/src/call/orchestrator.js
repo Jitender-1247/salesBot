@@ -202,7 +202,7 @@ export class CallOrchestrator {
         this.interruptMessage = 'User interrupted the current response.';
         this.handleAudioPlaybackComplete(); // Resolve pending wait immediately on interrupt
         this.resetIdleTimer(); // User is active — reset idle timer
-        this.io.to(this.callId).emit('agent-state', 'processing');
+        this.io.to(this.callId).emit('agent-state', 'transcribing');
 
         if (this.isProcessing) {
             this.pendingUserTurn = {
@@ -215,7 +215,7 @@ export class CallOrchestrator {
         try {
             this.isProcessing = true;
 
-            // Transcribe the audio blob via local Whisper
+            // Transcribe the audio blob via Groq / OpenAI / fast local Whisper
             const result = await transcribeAudio(audioBuffer, this.currentLanguage);
             const transcript = result.text;
             const language = result.language;
@@ -268,10 +268,16 @@ export class CallOrchestrator {
         try {
             console.log(`👤 User (${language}): ${transcript}`);
 
+            // ⚡ Instantly broadcast recognized user transcript to the UI
+            this.currentLanguage = language || this.currentLanguage;
+            this.io.to(this.callId).emit('user-transcript', {
+                text: transcript,
+                language: this.currentLanguage
+            });
+
             this.speechSequence += 1;
             const interruptId = this.speechSequence;
 
-            this.currentLanguage = language || this.currentLanguage;
             this.transcript += `\nUser: ${transcript}`;
             this.messages.push({ role: 'user', content: transcript, timestamp: new Date() });
 
@@ -289,11 +295,6 @@ export class CallOrchestrator {
                 console.log('🔀 Injected interruption context for LLM');
                 this.wasInterrupted = false;
             }
-
-            this.io.to(this.callId).emit('user-transcript', {
-                text: transcript,
-                language: this.currentLanguage
-            });
 
             // Reset repetition tracker on new user input
             this.lastActionKey = null;

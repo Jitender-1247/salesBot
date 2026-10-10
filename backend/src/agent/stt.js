@@ -25,8 +25,9 @@ export async function transcribeAudio(audioBuffer, language) {
     try {
         const lang = language || STT_LANGUAGE || 'en';
 
+        const cleanGroqKey = (GROQ_API_KEY || '').replace(/['"]/g, '').trim();
         // 1. Try Groq Whisper (Primary — Free, fast, high-accuracy)
-        if (GROQ_API_KEY && !GROQ_API_KEY.includes('your-groq')) {
+        if (cleanGroqKey && !cleanGroqKey.includes('your-groq')) {
             try {
                 const formData = new FormData();
                 const audioBlob = new Blob([audioBuffer], { type: 'audio/webm' });
@@ -40,9 +41,10 @@ export async function transcribeAudio(audioBuffer, language) {
                 const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
                     method: 'POST',
                     headers: {
-                        'Authorization': `Bearer ${GROQ_API_KEY}`,
+                        'Authorization': `Bearer ${cleanGroqKey}`,
                     },
                     body: formData,
+                    signal: AbortSignal.timeout(4000), // Max 4s before local fallback
                 });
 
                 if (response.ok) {
@@ -57,7 +59,7 @@ export async function transcribeAudio(audioBuffer, language) {
                     console.warn(`⚠️ Groq STT ${response.status}: ${errorText.substring(0, 120)} — falling back to local STT`);
                 }
             } catch (groqErr) {
-                console.warn('⚠️ Groq STT network error — falling back to local STT:', groqErr.message);
+                console.warn('⚠️ Groq STT timeout/error — falling back to local STT:', groqErr.message);
             }
         }
 

@@ -99,6 +99,7 @@ function LocalAvatar({ speaking, onReady }) {
 const stateLabels = {
     idle: 'Ready',
     listening: 'Listening',
+    transcribing: 'Listening...',
     processing: 'Thinking',
     speaking: 'Speaking',
     error: 'Error',

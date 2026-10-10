@@ -1,11 +1,11 @@
 import { useRef, useCallback, useEffect, useState } from 'react';
 
-// VAD thresholds — tuned for conversational voice and laptop/headset mics
-const SILENCE_THRESHOLD       = 0.007; // below this = silence
-const SPEECH_THRESHOLD        = 0.013; // above this = speech (sensitive to natural voice)
-const SILENCE_DURATION_MS     = 800;   // ms of silence before utterance finishes
-const MIN_SPEECH_DURATION_MS  = 180;   // minimum speech length to send (captures short 'yes', 'hi', 'shoes')
-const SPEECH_CONFIRM_TICKS    = 2;     // consecutive ticks above threshold before recording starts
+// VAD thresholds — tuned for fast conversational voice and laptop/headset mics
+const DEFAULT_SPEECH_THRESHOLD  = 0.013; // above this = speech
+const SILENCE_DURATION_MS       = 550;   // ms of silence before utterance finishes (snappy response)
+const MIN_SPEECH_DURATION_MS    = 180;   // minimum speech length to send
+const MAX_RECORDING_DURATION_MS = 6000;  // hard safety limit: auto-send after 6s max continuous speech
+const SPEECH_CONFIRM_TICKS      = 2;     // consecutive ticks above threshold before recording starts
 
 export default function AudioRecorder({
     disabled = false,
@@ -29,6 +29,7 @@ export default function AudioRecorder({
     const speechConfirmRef   = useRef(0);
     const isInitializedRef   = useRef(false);
     const echoCooldownRef    = useRef(0);
+    const ambientNoiseRef    = useRef(0.006);
 
     // Keep callbacks in refs so VAD loop never goes stale
     const onRecordingCompleteRef = useRef(onRecordingComplete);
@@ -138,6 +139,14 @@ export default function AudioRecorder({
 
         const now = Date.now();
 
+        // Track ambient noise floor while idle
+        if (!isRecordingRef.current && !isSpeakingRef.current && now > echoCooldownRef.current) {
+            ambientNoiseRef.current = ambientNoiseRef.current * 0.95 + vol * 0.05;
+        }
+
+        // Dynamic thresholds adapting to room noise floor
+        const speechThresh = Math.max(DEFAULT_SPEECH_THRESHOLD, ambientNoiseRef.current * 2.2);
+
         // ── Voice interruption: If user speaks clearly while Sofia is speaking, trigger interrupt ──
         if (isSpeakingRef.current) {
             if (vol > 0.038) {
@@ -162,18 +171,26 @@ export default function AudioRecorder({
             return;
         }
 
-        const isSpeech = vol > SPEECH_THRESHOLD;
-        const isSilent = vol < SILENCE_THRESHOLD;
+        const isSpeech = vol > speechThresh;
 
         if (isRecordingRef.current) {
-            // Currently recording — look for end-of-utterance silence
-            if (isSilent) {
+            // Safety cap: auto-finish if recording continuously for more than 6s
+            if (speechStartRef.current && now - speechStartRef.current > MAX_RECORDING_DURATION_MS) {
+                stopCapture();
+                return;
+            }
+
+            // User is actively speaking
+            if (isSpeech) {
+                silenceStartRef.current = null; // Only reset silence timer when actively speaking
+            } else {
+                // User has paused or finished speaking (ambient room volume)
                 if (silenceStartRef.current === null) {
                     silenceStartRef.current = now;
                 } else if (now - silenceStartRef.current > SILENCE_DURATION_MS) {
                     const dur = speechStartRef.current ? now - speechStartRef.current : 0;
                     if (dur > MIN_SPEECH_DURATION_MS) {
-                        stopCapture(); // Valid utterance — send it
+                        stopCapture(); // Valid utterance — send it immediately
                     } else {
                         // Too short — discard
                         if (mediaRecorderRef.current?.state === 'recording') {
@@ -185,8 +202,6 @@ export default function AudioRecorder({
                         speechStartRef.current  = null;
                     }
                 }
-            } else {
-                silenceStartRef.current = null; // reset silence timer while active
             }
         } else if (!isProcessingRef.current) {
             // Not recording — wait for speech to start
