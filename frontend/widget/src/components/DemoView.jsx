@@ -363,23 +363,6 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
 
     return (
         <div className="app-container">
-            {/* Fullscreen Loading Overlay — waits for Live 3D Avatar to connect */}
-            {!isAvatarReady && (
-                <div className="demo-loading-overlay">
-                    <div className="demo-loading-card">
-                        <div className="demo-loading-avatar-icon" style={{ overflow: 'hidden', padding: 0 }}>
-                            <img src="/widget/alex-avatar.png" alt="Sofia" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} onError={(e) => { e.target.src = '/alex-avatar.png'; }} />
-                        </div>
-                        <h2 className="demo-loading-title">Connecting Live AI Agent</h2>
-                        <p className="demo-loading-subtitle">
-                            Starting 3D Avatar & Live Browser Session...
-                        </p>
-                        <div className="demo-loading-spinner" />
-                        <span className="demo-loading-status">Synchronizing video & audio...</span>
-                    </div>
-                </div>
-            )}
-
             {/* Header */}
             <header className="app-header">
                 <div>

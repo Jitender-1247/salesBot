@@ -176,10 +176,11 @@ export class CallOrchestrator {
      * Triggered by the frontend when the avatar video track is fully attached and visible.
      */
     async sendGreeting() {
-        if (!this.isActive || this.hasGreeted) return;
+        if (this.hasGreeted) return;
         this.hasGreeted = true;
+        this.isActive = true;
         
-        console.log(`👋 Avatar is ready on frontend. Sending greeting...`);
+        console.log(`👋 Sending immediate greeting to visitor...`);
         const greeting = `Hi! I'm Sofia. How can I assist you today?`;
         this.transcript += `\nAgent: ${greeting}`;
         this.messages.push({ role: 'agent', content: greeting, timestamp: new Date() });

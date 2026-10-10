@@ -123,23 +123,35 @@ export function initSocket(server) {
                 // Start orchestrator (pass roomName so it can send LiveKit data to Keyframe agent)
                 const orchestrator = new CallOrchestrator(productId, callId, io, roomName);
                 orchestrators.set(callId, orchestrator);
-                await orchestrator.start();
-
                 socket.activeCallId = callId;
 
-                // Dispatch the Keyframe avatar agent to this room
-                try {
-                    const lkUrl = process.env.LIVEKIT_URL.replace('wss://', 'https://');
-                    const agentDispatch = new AgentDispatchClient(
-                        lkUrl,
-                        process.env.LIVEKIT_API_KEY,
-                        process.env.LIVEKIT_API_SECRET
-                    );
-                    await agentDispatch.createDispatch(roomName, 'keyframe-avatar');
-                    console.log(`🎤 Keyframe agent dispatched to room: ${roomName}`);
-                } catch (dispatchErr) {
-                    console.warn('⚠️ Keyframe agent dispatch failed (is the Python agent running?):', dispatchErr.message);
-                }
+                // Launch browser session in background so audio greeting and UI begin with ZERO delay
+                orchestrator.start().then(() => {
+                    console.log(`🌐 [${callId}] Browser session fully initialized`);
+                }).catch(err => {
+                    console.warn(`⚠️ [${callId}] Orchestrator startup error:`, err.message);
+                });
+
+                // Trigger immediate greeting so user hears Sofia's voice right away
+                setTimeout(() => {
+                    orchestrator.sendGreeting().catch(e => console.warn('Greeting notice:', e.message));
+                }, 400);
+
+                // Dispatch the Keyframe avatar agent to this room in background
+                (async () => {
+                    try {
+                        const lkUrl = process.env.LIVEKIT_URL.replace('wss://', 'https://');
+                        const agentDispatch = new AgentDispatchClient(
+                            lkUrl,
+                            process.env.LIVEKIT_API_KEY,
+                            process.env.LIVEKIT_API_SECRET
+                        );
+                        await agentDispatch.createDispatch(roomName, 'keyframe-avatar');
+                        console.log(`🎤 Keyframe agent dispatched to room: ${roomName}`);
+                    } catch (dispatchErr) {
+                        console.warn('ℹ️ Keyframe agent dispatch notice:', dispatchErr.message);
+                    }
+                })();
 
                 // ── Smart Screenshot Capture ──
                 // Screenshots are sent as base64 data URL strings for reliable delivery
