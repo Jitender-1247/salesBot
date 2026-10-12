@@ -5,6 +5,9 @@ const pageSchema = new mongoose.Schema({
   url: String,
   description: String,
   keyFeatures: [String],
+  talkingPoints: [String],
+  commonQuestions: [String],
+  demoTip: String,
   howToReach: String,
   screenshot: String
 });
@@ -20,6 +23,12 @@ const productSchema = new mongoose.Schema({
   extraKnowledge: { type: String, default: '' },
   knowledgeMap: {
     productSummary: String,
+    extraKnowledge: String,
+    suggestedDemoFlow: [{
+      step: Number,
+      page: String,
+      talkingPoint: String
+    }],
     loginSteps: {
       emailSelector: String,
       passwordSelector: String,

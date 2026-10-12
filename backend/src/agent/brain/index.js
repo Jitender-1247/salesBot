@@ -151,19 +151,54 @@ function buildSystemPrompt(language, knowledgeMap, productName, pageContext) {
         .map(p => `  • ${p.name}: ${p.url}`)
         .join('\n');
 
-    // Build a lean feature summary
+    // Build a RICH feature summary with talking points and descriptions
     const featureSummary = pages
-        .map(p => `${p.name}: ${p.keyFeatures?.join(', ') || p.description || ''}`)
+        .map(p => {
+            let entry = `📄 ${p.name}`;
+            if (p.description) entry += `\n   ${p.description}`;
+            if (p.keyFeatures?.length) entry += `\n   Features: ${p.keyFeatures.join(', ')}`;
+            if (p.talkingPoints?.length) entry += `\n   💬 Talk about: ${p.talkingPoints.join(' | ')}`;
+            if (p.demoTip) entry += `\n   💡 Demo tip: ${p.demoTip}`;
+            return entry;
+        })
         .join('\n');
+
+    // Build demo flow if available
+    let demoFlowSection = '';
+    if (knowledgeMap.suggestedDemoFlow?.length) {
+        demoFlowSection = '\nSUGGESTED DEMO FLOW (use when user says "show me around" or "give me a tour"):';
+        for (const step of knowledgeMap.suggestedDemoFlow) {
+            demoFlowSection += `\n  ${step.step}. ${step.page} — ${step.talkingPoint}`;
+        }
+    }
+
+    // Inject client-provided extra knowledge (sales context, FAQs, competitive info)
+    let extraKnowledgeSection = '';
+    if (knowledgeMap.extraKnowledge || '') {
+        extraKnowledgeSection = `\n═══ ADDITIONAL PRODUCT KNOWLEDGE (from the product owner) ═══\n${knowledgeMap.extraKnowledge}`;
+    }
 
     // Current page context with numbered element list
     let currentPageSection = '';
     if (pageContext) {
-        currentPageSection = `
-═══ CURRENT PAGE STATE ═══
-URL: ${pageContext.url}
-Title: ${pageContext.title}
-Headings: ${pageContext.headings?.join(', ') || 'none'}`;
+        currentPageSection = `\n═══ CURRENT PAGE STATE ═══\nURL: ${pageContext.url}\nTitle: ${pageContext.title}\nHeadings: ${pageContext.headings?.join(', ') || 'none'}`;
+
+        // Match current page to knowledge map for contextual talking points
+        const currentPageKnowledge = pages.find(p => pageContext.url.includes(new URL(p.url).pathname));
+        if (currentPageKnowledge) {
+            if (currentPageKnowledge.talkingPoints?.length) {
+                currentPageSection += `\n\n💬 TALKING POINTS FOR THIS PAGE:`;
+                currentPageKnowledge.talkingPoints.forEach(tp => {
+                    currentPageSection += `\n  • ${tp}`;
+                });
+            }
+            if (currentPageKnowledge.commonQuestions?.length) {
+                currentPageSection += `\n\n❓ COMMON QUESTIONS USERS ASK ON THIS PAGE:`;
+                currentPageKnowledge.commonQuestions.forEach(q => {
+                    currentPageSection += `\n  • ${q}`;
+                });
+            }
+        }
 
         // Build the numbered element list
         if (pageContext.elements && pageContext.elements.length > 0) {
@@ -182,17 +217,36 @@ Headings: ${pageContext.headings?.join(', ') || 'none'}`;
 
     return `You are Sofia, a friendly AI sales demo specialist for ${productName}.
 You are on a live voice call, navigating a real browser to demo the product.
+Your goal is not just to show pages — you are SELLING. Highlight value, solve pain points, and create excitement.
 
 LANGUAGE: Respond ONLY in ${langName}. Style: ${persona}
+
+PRODUCT SUMMARY: ${knowledgeMap.productSummary || ''}
 
 PRODUCT PAGES:
 ${pageList}
 
-PRODUCT FEATURES:
+PRODUCT KNOWLEDGE:
 ${featureSummary}
-
-PRODUCT SUMMARY: ${knowledgeMap.productSummary || ''}
+${demoFlowSection}
+${extraKnowledgeSection}
 ${currentPageSection}
+
+═══ SALES DEMO BEHAVIOR ═══
+
+1. Don't just describe what you see — explain WHY it matters to the user.
+   BAD: "This is the dashboard page."
+   GOOD: "This dashboard gives you a real-time view of everything — most teams tell us this saves them hours of manual checking."
+
+2. Use the TALKING POINTS above when available. They contain product-specific knowledge.
+
+3. When the user asks "show me around", follow the SUGGESTED DEMO FLOW if available.
+
+4. Anticipate questions — if a page has COMMON QUESTIONS listed, proactively address them.
+
+5. After showing a feature, ask an engaging follow-up:
+   "Would you like to see how this works with your specific use case?"
+   "Want me to show you the feature that most customers love?"
 
 ═══ OUTPUT FORMAT (STRICT RULES) ═══
 
@@ -221,24 +275,6 @@ ACTION TAGS (use exactly one per turn, only if needed):
    Turn 1: "Let me open that item for you." [CLICK: #5]
    Turn 2: "Now I'll add it to your cart." [CLICK: #3]
    Turn 3: "Done! It's in your cart. What else would you like to see?" [WAIT]
-
-═══ EXAMPLES ═══
-
-User: "Show me the products"
-(If already on products page) → "You're looking at all our products right now! We have items like the Backpack, Bike Light, and more. Want me to show you any specific one?" [WAIT]
-(If on a different page) → "Let me take you to our products page." [NAVIGATE: https://www.saucedemo.com/inventory.html]
-
-User: "Click on the backpack"
-(Sees [5] a "Sauce Labs Backpack" in element list) → "Sure, let me open the Backpack for you." [CLICK: #5]
-
-User: "Add it to my cart"
-(Sees [3] button "Add to cart" in element list) → "Adding it to your cart now!" [CLICK: #3]
-
-User: "What's the most popular item?"
-→ "Based on what I can see, the Sauce Labs Backpack is one of the most popular items — great quality and very practical!" [WAIT]
-
-User: "Go back"
-→ "Let me take you back." [NAVIGATE: https://www.saucedemo.com/inventory.html]
 
 /no_think`.trim();
 }

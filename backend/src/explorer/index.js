@@ -112,24 +112,36 @@ async function explorePage(page, knowledgeMap, visitedUrls, baseUrl) {
         const pageContent = await extractPageContent(page);
 
         const analysis = await analyzePage(pageContent, `
-      Analyze this web page and return ONLY this JSON:
+      You are a sales demo specialist analyzing this page. Return ONLY this JSON:
       {
-        "pageName": "short name for this page",
-        "description": "what this page does in 2 sentences",
+        "pageName": "short descriptive name for this page (e.g. 'Product Catalog', 'User Dashboard')",
+        "description": "2-sentence description of what this page does and its value to users",
         "keyFeatures": ["feature1", "feature2", "feature3"],
-        "howToReach": "how to navigate to this page"
+        "talkingPoints": [
+          "A compelling sentence about WHY this page matters to a potential buyer",
+          "Another sentence highlighting a specific benefit or differentiator"
+        ],
+        "commonQuestions": [
+          "A question a prospect might ask when seeing this page",
+          "Another likely question"
+        ],
+        "demoTip": "What to click or highlight on this page to create the best impression",
+        "howToReach": "how to navigate to this page from the main menu"
       }
     `);
 
         let pageData;
         try {
-            const cleaned = analysis.replace(/```json|```/g, '').trim();
+            const cleaned = analysis.replace(/```json|```/g, '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
             pageData = JSON.parse(cleaned);
         } catch {
             pageData = {
                 pageName: 'Page',
                 description: 'A page in this product',
                 keyFeatures: [],
+                talkingPoints: [],
+                commonQuestions: [],
+                demoTip: '',
                 howToReach: 'Navigate from main menu'
             };
         }
@@ -138,7 +150,10 @@ async function explorePage(page, knowledgeMap, visitedUrls, baseUrl) {
             name: pageData.pageName,
             url: currentUrl,
             description: pageData.description,
-            keyFeatures: pageData.keyFeatures,
+            keyFeatures: pageData.keyFeatures || [],
+            talkingPoints: pageData.talkingPoints || [],
+            commonQuestions: pageData.commonQuestions || [],
+            demoTip: pageData.demoTip || '',
             howToReach: pageData.howToReach
         });
 
@@ -343,12 +358,43 @@ export async function exploreProduct(productId) {
         await explorePage(page, knowledgeMap, visitedUrls, product.url);
 
 
-        // Generate product summary via Groq
+        // Generate a sales-oriented product summary via Groq
+        const pageDescriptions = knowledgeMap.pages.map(p => `${p.name}: ${p.description}`).join('\n');
         const summary = await analyzePage(
-            knowledgeMap.pages.map(p => `${p.name}: ${p.description}`).join('\n'),
-            'Based on these pages from a product, write a 3 sentence summary of what this product does and its key value proposition.'
+            pageDescriptions,
+            `Based on these pages from a product, write a compelling 3-4 sentence product summary.
+Include: what the product does, who it's for, and its key value proposition.
+Write it as sales pitch context (not as a user-facing pitch itself).
+Return ONLY the summary text, no JSON.`
         );
-        knowledgeMap.productSummary = summary;
+        knowledgeMap.productSummary = summary.replace(/<think>[\s\S]*?<\/think>/g, '').replace(/```/g, '').trim();
+
+        // Generate a suggested demo flow (ordered walkthrough)
+        if (knowledgeMap.pages.length >= 3) {
+            try {
+                const demoFlowRaw = await analyzePage(
+                    knowledgeMap.pages.map(p => `${p.name} (${p.url}): ${p.description}`).join('\n'),
+                    `Given these product pages, create the ideal order to demo them to a prospect.
+Return ONLY a JSON array:
+[
+  { "step": 1, "page": "PageName", "talkingPoint": "Why show this first" },
+  { "step": 2, "page": "PageName", "talkingPoint": "What to highlight here" }
+]
+Include at most 5 steps. Order them to create the most compelling narrative.`
+                );
+                const cleaned = demoFlowRaw.replace(/```json|```/g, '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+                knowledgeMap.suggestedDemoFlow = JSON.parse(cleaned);
+                console.log(`📋 Generated ${knowledgeMap.suggestedDemoFlow.length}-step demo flow`);
+            } catch {
+                console.log('⚠️ Could not generate demo flow — skipping');
+                knowledgeMap.suggestedDemoFlow = [];
+            }
+        }
+
+        // Inject extraKnowledge from the product record into the knowledge map
+        if (product.extraKnowledge) {
+            knowledgeMap.extraKnowledge = product.extraKnowledge;
+        }
 
         await Product.findByIdAndUpdate(productId, {
             knowledgeMap,
