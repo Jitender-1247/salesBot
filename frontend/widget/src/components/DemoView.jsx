@@ -128,7 +128,44 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
     ); // default 5 min, overridden by backend config
 
     const [chatInput, setChatInput] = useState('');
+    const [isPipMinimized, setIsPipMinimized] = useState(false);
+    const [pipPos, setPipPos] = useState({ x: 8, y: 8 });
+    const pipDragRef = useRef(null);
     const genId = () => `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+    // Drag handler for floating avatar pip
+    const handlePipDragStart = useCallback((e) => {
+        // Don't drag on button clicks
+        if (e.target.closest('.pip-toggle')) return;
+        e.preventDefault();
+        const pip = e.currentTarget;
+        const rect = pip.getBoundingClientRect();
+        const parentRect = pip.parentElement.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        const offsetX = clientX - rect.left;
+        const offsetY = clientY - rect.top;
+
+        const onMove = (ev) => {
+            const cx = ev.touches ? ev.touches[0].clientX : ev.clientX;
+            const cy = ev.touches ? ev.touches[0].clientY : ev.clientY;
+            const newX = Math.max(0, Math.min(parentRect.width - rect.width, cx - parentRect.left - offsetX));
+            const newY = Math.max(0, Math.min(parentRect.height - rect.height, cy - parentRect.top - offsetY));
+            setPipPos({ x: newX, y: newY });
+        };
+
+        const onUp = () => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            document.removeEventListener('touchmove', onMove);
+            document.removeEventListener('touchend', onUp);
+        };
+
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+        document.addEventListener('touchmove', onMove, { passive: false });
+        document.addEventListener('touchend', onUp);
+    }, []);
 
     // Safety fallback: auto-dismiss loading overlay after 4 seconds max if video track connection is delayed
     useEffect(() => {
@@ -435,29 +472,43 @@ export default function DemoView({ callData, socket, screenImage, onEnd }) {
                     </div>
                 </div>
 
-                {/* Right Column: Avatar on Top, Live Transcript & Controls Below */}
+                {/* Right Column: Full-height Transcript — Avatar floats as PiP */}
                 <div className="side-panel">
-                    {/* Top: Avatar Video Card with Natural Portrait Aspect Ratio */}
-                    <div className="side-avatar-card glass-card">
-                        <div className="side-avatar-header">
-                            <span className="side-avatar-dot" />
-                            <span className="side-avatar-title">Sofia • AI Avatar</span>
+                    {/* Floating Draggable Avatar PiP */}
+                    <div
+                        className={`avatar-pip ${isPipMinimized ? 'pip-minimized' : ''}`}
+                        style={{ top: pipPos.y, left: pipPos.x }}
+                        onMouseDown={handlePipDragStart}
+                        onTouchStart={handlePipDragStart}
+                    >
+                        <div className="pip-header">
+                            <span className="pip-dot" />
+                            <span className="pip-title">Sofia</span>
+                            <button
+                                className="pip-toggle"
+                                onClick={(e) => { e.stopPropagation(); setIsPipMinimized(m => !m); }}
+                                title={isPipMinimized ? 'Expand avatar' : 'Minimize avatar'}
+                            >
+                                {isPipMinimized ? '⬆' : '⬇'}
+                            </button>
                         </div>
-                        <div className="side-avatar-video-wrapper">
-                            {callData?.livekitUrl && callData?.visitorToken ? (
-                                <KeyframeAvatar
-                                    livekitUrl={callData.livekitUrl}
-                                    token={callData.visitorToken}
-                                    speaking={isSpeaking}
-                                    onReady={handleAvatarReady}
-                                />
-                            ) : (
-                                <LocalAvatar
-                                    speaking={isSpeaking}
-                                    onReady={handleAvatarReady}
-                                />
-                            )}
-                        </div>
+                        {!isPipMinimized && (
+                            <div className="pip-video">
+                                {callData?.livekitUrl && callData?.visitorToken ? (
+                                    <KeyframeAvatar
+                                        livekitUrl={callData.livekitUrl}
+                                        token={callData.visitorToken}
+                                        speaking={isSpeaking}
+                                        onReady={handleAvatarReady}
+                                    />
+                                ) : (
+                                    <LocalAvatar
+                                        speaking={isSpeaking}
+                                        onReady={handleAvatarReady}
+                                    />
+                                )}
+                            </div>
+                        )}
                     </div>
 
                     {/* Bottom: Live Transcript, Interactive Mic & Chat Bar */}

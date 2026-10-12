@@ -314,60 +314,99 @@ body::before {
 
 /* ── Avatar Overlay & Side Panel ── */
 .side-panel {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 0;
   height: calc(100vh - 100px);
   min-height: 500px;
 }
 
-.side-avatar-card {
-  display: flex;
-  flex-direction: column;
+/* ── Floating Avatar PiP (Picture-in-Picture) ── */
+.avatar-pip {
+  position: absolute;
+  z-index: 50;
+  width: 180px;
+  border-radius: 14px;
+  background: rgba(12, 12, 24, 0.92);
+  border: 1px solid rgba(167, 139, 250, 0.35);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(167, 139, 250, 0.15);
+  backdrop-filter: blur(16px);
+  cursor: grab;
   overflow: hidden;
-  background: rgba(18, 18, 30, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
-  width: 100%;
+  transition: width 0.25s ease, box-shadow 0.3s ease;
+  user-select: none;
+  touch-action: none;
 }
 
-.side-avatar-header {
+.avatar-pip:active {
+  cursor: grabbing;
+  box-shadow: 0 12px 40px rgba(124, 58, 237, 0.4), 0 0 0 2px rgba(167, 139, 250, 0.3);
+}
+
+.avatar-pip.pip-minimized {
+  width: 120px;
+}
+
+.pip-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  background: rgba(255, 255, 255, 0.03);
+  gap: 6px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.04);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.side-avatar-dot {
-  width: 8px;
-  height: 8px;
+.pip-dot {
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: #10b981;
-  box-shadow: 0 0 8px #10b981;
+  box-shadow: 0 0 6px #10b981;
+  flex-shrink: 0;
 }
 
-.side-avatar-title {
-  font-size: 0.75rem;
+.pip-title {
+  font-size: 0.65rem;
   font-weight: 700;
   color: var(--text-primary);
+  flex: 1;
 }
 
-.side-avatar-video-wrapper {
-  position: relative;
-  width: 100%;
-  height: 210px;
-  background: #06060e;
+.pip-toggle {
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.6rem;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
+  transition: background 0.2s;
+  flex-shrink: 0;
 }
 
-.side-avatar-video-wrapper video,
-.side-avatar-video-wrapper .keyframe-avatar-container {
+.pip-toggle:hover {
+  background: rgba(167, 139, 250, 0.25);
+  color: var(--text-primary);
+}
+
+.pip-video {
+  width: 100%;
+  height: 140px;
+  background: #06060e;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pip-video video,
+.pip-video .keyframe-avatar-container,
+.pip-video img {
   width: 100% !important;
   height: 100% !important;
   object-fit: cover !important;
