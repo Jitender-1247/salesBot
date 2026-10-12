@@ -36,15 +36,17 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      stt-server:
-        condition: service_started
       tts-server:
         condition: service_started
     volumes:
       - ./backend/src:/app/src
     restart: unless-stopped
 
+  # ── Local STT Server (OPTIONAL — only needed if no cloud STT keys are set) ──
+  # To start: docker compose --profile local-stt up -d
+  # With Deepgram or Groq keys configured, this container is NOT needed and saves ~500MB RAM
   stt-server:
+    profiles: ["local-stt"]
     build:
       context: ./servers
       dockerfile: Dockerfile
@@ -54,7 +56,6 @@ services:
     volumes:
       - ./servers:/app
     restart: unless-stopped
-    # Use host IPC for better performance with local models if needed
     ipc: host
 
   tts-server:
