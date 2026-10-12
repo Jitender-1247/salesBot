@@ -9,18 +9,36 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const TTS_BASE_URL = process.env.TTS_BASE_URL || 'http://localhost:8000';
 
 /**
- * Generate TTS audio for the given text.
+ * Split text into speakable chunks (sentences).
+ * Each chunk is short enough for fast TTS but long enough to sound natural.
+ */
+function splitIntoSentences(text) {
+    // Split on sentence boundaries, keeping the delimiter
+    const parts = text.split(/(?<=[.!?])\s+/);
+    const chunks = [];
+    let current = '';
+
+    for (const part of parts) {
+        if ((current + ' ' + part).length > 200 && current) {
+            chunks.push(current.trim());
+            current = part;
+        } else {
+            current = current ? current + ' ' + part : part;
+        }
+    }
+    if (current.trim()) chunks.push(current.trim());
+    return chunks.length > 0 ? chunks : [text];
+}
+
+/**
+ * Generate TTS audio for a single text chunk.
  * Priority: ElevenLabs → OpenAI TTS → Local TTS server
- *
- * Returns a Buffer (MP3) that can be emitted directly to the browser.
  *
  * @param {string} text
  * @param {AbortSignal} [signal]
  * @returns {Promise<Buffer>}
  */
-export async function speak(text, signal) {
-    console.log(`🔊 TTS: "${text.substring(0, 60)}..."`);
-
+async function speakChunk(text, signal) {
     // ── 1. ElevenLabs (Primary if configured) ──
     if (ELEVENLABS_API_KEY && !ELEVENLABS_API_KEY.includes('your-eleven')) {
         try {
@@ -50,9 +68,7 @@ export async function speak(text, signal) {
 
             if (response.ok) {
                 const arrayBuffer = await response.arrayBuffer();
-                const buffer = Buffer.from(arrayBuffer);
-                console.log(`✅ [ElevenLabs] TTS audio: ${buffer.length} bytes`);
-                return buffer;
+                return Buffer.from(arrayBuffer);
             } else {
                 const err = await response.text();
                 console.warn(`⚠️ ElevenLabs TTS ${response.status}: ${err.slice(0, 100)} — falling back`);
@@ -84,9 +100,7 @@ export async function speak(text, signal) {
 
             if (response.ok) {
                 const arrayBuffer = await response.arrayBuffer();
-                const buffer = Buffer.from(arrayBuffer);
-                console.log(`✅ [OpenAI TTS] audio: ${buffer.length} bytes`);
-                return buffer;
+                return Buffer.from(arrayBuffer);
             } else {
                 console.warn(`⚠️ OpenAI TTS ${response.status} — falling back to local TTS`);
             }
@@ -97,28 +111,77 @@ export async function speak(text, signal) {
     }
 
     // ── 3. Local TTS server (Always reliable Edge-TTS) ──
-    try {
-        const response = await fetch(`${TTS_BASE_URL}/v1/audio/speech`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                model: 'tts-1',
-                input: text,
-                voice: 'alloy',
-                speed: 1.0,
-                response_format: 'mp3'
-            }),
-            signal,
-        });
+    const response = await fetch(`${TTS_BASE_URL}/v1/audio/speech`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            model: 'tts-1',
+            input: text,
+            voice: 'alloy',
+            speed: 1.0,
+            response_format: 'mp3'
+        }),
+        signal,
+    });
 
-        if (response.ok) {
-            const arrayBuffer = await response.arrayBuffer();
-            const buffer = Buffer.from(arrayBuffer);
-            console.log(`✅ [Local TTS] audio: ${buffer.length} bytes`);
-            return buffer;
-        } else {
-            throw new Error(`Local TTS error: ${response.status}`);
+    if (response.ok) {
+        const arrayBuffer = await response.arrayBuffer();
+        return Buffer.from(arrayBuffer);
+    } else {
+        throw new Error(`Local TTS error: ${response.status}`);
+    }
+}
+
+/**
+ * Generate TTS audio for the given text.
+ * If emitter is provided, streams sentence-by-sentence chunks to the client
+ * so audio starts playing within ~500ms (instead of waiting for full generation).
+ *
+ * @param {string} text
+ * @param {AbortSignal} [signal]
+ * @param {{ emit: Function }} [emitter] - Socket.IO room emitter for chunked streaming
+ * @returns {Promise<Buffer|null>} - Full buffer if no emitter, null if streamed via emitter
+ */
+export async function speak(text, signal, emitter) {
+    const startMs = Date.now();
+    console.log(`🔊 TTS: "${text.substring(0, 60)}..."`);
+
+    // ── Streaming mode: split into sentences, emit each chunk as it's ready ──
+    if (emitter) {
+        const sentences = splitIntoSentences(text);
+        let totalBytes = 0;
+
+        for (let i = 0; i < sentences.length; i++) {
+            if (signal?.aborted) {
+                console.log('🛑 TTS aborted mid-stream');
+                break;
+            }
+
+            try {
+                const chunkBuffer = await speakChunk(sentences[i], signal);
+                if (chunkBuffer && chunkBuffer.length > 0) {
+                    emitter.emit('agent-audio', chunkBuffer);
+                    totalBytes += chunkBuffer.length;
+
+                    if (i === 0) {
+                        console.log(`🔊 [TTS Stream] First chunk sent in ${Date.now() - startMs}ms (${chunkBuffer.length} bytes)`);
+                    }
+                }
+            } catch (err) {
+                if (err.name === 'AbortError') throw err;
+                console.warn(`⚠️ TTS chunk ${i + 1}/${sentences.length} failed:`, err.message);
+            }
         }
+
+        console.log(`✅ [TTS Stream] Complete: ${sentences.length} chunks, ${totalBytes} bytes, ${Date.now() - startMs}ms`);
+        return null; // Already streamed
+    }
+
+    // ── Non-streaming mode: generate full buffer at once (legacy fallback) ──
+    try {
+        const buffer = await speakChunk(text, signal);
+        console.log(`✅ [TTS] audio: ${buffer.length} bytes (${Date.now() - startMs}ms)`);
+        return buffer;
     } catch (err) {
         if (err.name === 'AbortError') throw err;
         console.error('❌ All TTS providers failed:', err.message);

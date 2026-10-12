@@ -456,14 +456,13 @@ export class CallOrchestrator {
                 console.log(`ℹ️ Keyframe check/sendData notice: ${e.message}`);
             }
 
-            // ── Generate and emit direct TTS audio via Socket.IO for guaranteed audio delivery ──
-            let audioBuffer = null;
+            // ── Generate TTS audio via sentence-level streaming ──
+            // Each sentence chunk is emitted as soon as it's ready,
+            // so audio starts playing within ~500ms while the rest generates.
             try {
-                audioBuffer = await speak(text, controller.signal);
-                if (audioBuffer && audioBuffer.length > 0) {
-                    this.io.to(this.callId).emit('agent-audio', audioBuffer);
-                    console.log(`🔊 [Direct Audio] Sent ${audioBuffer.length} bytes of audio via socket`);
-                }
+                const roomEmitter = this.io.to(this.callId);
+                await speak(text, controller.signal, roomEmitter);
+                console.log(`🔊 [Streamed TTS] All chunks sent for: "${text.substring(0, 50)}..."`);
             } catch (ttsErr) {
                 if (ttsErr.name !== 'AbortError') {
                     console.warn(`⚠️ TTS generation failed: ${ttsErr.message}`);

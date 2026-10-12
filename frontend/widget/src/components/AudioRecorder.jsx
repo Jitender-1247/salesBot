@@ -224,10 +224,10 @@ export default function AudioRecorder({
 
         const initMic = async () => {
             try {
+                // Request mic — don't force sampleRate (fails silently on many mobile browsers)
                 const stream = await navigator.mediaDevices.getUserMedia({
                     audio: {
                         channelCount: 1,
-                        sampleRate: 16000,
                         echoCancellation: true,
                         noiseSuppression: true,
                         autoGainControl: true,
@@ -236,7 +236,14 @@ export default function AudioRecorder({
 
                 streamRef.current = stream;
 
-                const ctx      = new AudioContext({ sampleRate: 16000 });
+                // Create AudioContext — try preferred rate first, fallback to default
+                let ctx;
+                try {
+                    ctx = new AudioContext({ sampleRate: 16000 });
+                } catch {
+                    ctx = new AudioContext(); // Fallback to browser's native sample rate
+                }
+
                 const source   = ctx.createMediaStreamSource(stream);
                 const analyser = ctx.createAnalyser();
                 analyser.fftSize = 512;
@@ -247,7 +254,9 @@ export default function AudioRecorder({
                 analyserRef.current     = analyser;
                 setIsListening(true);
 
-                // Unlock audio playback context
+                console.log(`[AudioRecorder] Mic initialized — sampleRate: ${ctx.sampleRate}Hz`);
+
+                // Unlock audio playback context on mobile
                 const unlock = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
                 unlock.volume = 0;
                 unlock.play().catch(() => {});
