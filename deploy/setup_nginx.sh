@@ -54,7 +54,9 @@ sudo chmod -R 755 /var/www/salesbot /var/www/html
 # 4. Sync Nginx configuration
 if [ -f "$REPO_ROOT/deploy/nginx.conf" ]; then
     echo "Updating Nginx configuration from deploy/nginx.conf..."
+    sudo cp "$REPO_ROOT/deploy/nginx.conf" /etc/nginx/sites-available/salesbot
     sudo cp "$REPO_ROOT/deploy/nginx.conf" /etc/nginx/sites-available/default
+    sudo ln -sf /etc/nginx/sites-available/salesbot /etc/nginx/sites-enabled/salesbot
 fi
 
 # 5. Reload Nginx
