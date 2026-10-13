@@ -6,10 +6,17 @@ import api from '../api';
 const BOT_TYPES = [
     {
         id: 'salesbot',
-        name: 'SalesBot',
+        name: 'SalesBot (Live Demo)',
         personaName: 'Sofia',
         icon: '⚡',
-        description: 'AI voice & vision sales agent that gives live, personalized product demos to your website visitors.',
+        description: 'AI voice & vision sales agent that gives live, interactive product walkthroughs and navigates real browsers for your website visitors.',
+    },
+    {
+        id: 'avatarbot',
+        name: 'AvatarBot (1-on-1 Chat)',
+        personaName: 'Sofia',
+        icon: '💬',
+        description: 'Direct 1-on-1 conversational avatar agent that consults, answers prospect questions, and sells using your stored product knowledge without browser navigation.',
     },
 ];
 

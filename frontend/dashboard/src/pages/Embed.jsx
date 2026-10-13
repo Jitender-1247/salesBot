@@ -9,9 +9,14 @@ export default function Embed() {
     const [product, setProduct] = useState(null);
     const [loading, setLoading] = useState(true);
     const [copied, setCopied] = useState(false);
+    const [embedMode, setEmbedMode] = useState('choice'); // 'choice' | 'chat' | 'demo'
 
-    const serverUrl = 'http://localhost:5000';
-    const embedCode = `<script src="${serverUrl}/agent.js" data-product-id="${id}" data-server="${serverUrl}"></script>`;
+    const serverUrl = window.location.origin.includes('localhost')
+        ? 'http://localhost:5000'
+        : window.location.origin;
+
+    const modeAttr = embedMode === 'choice' ? '' : ` data-mode="${embedMode}"`;
+    const embedCode = `<script src="${serverUrl}/agent.js" data-product-id="${id}" data-server="${serverUrl}"${modeAttr}></script>`;
 
     useEffect(() => { fetchProduct(); }, [id]);
 
@@ -52,23 +57,82 @@ export default function Embed() {
                         Embed Widget Code
                     </h1>
                     <p className="text-xs mt-1" style={{ color: 'var(--text-sub)' }}>
-                        Add this single script tag to your website HTML to launch the AI sales avatar
+                        Choose your deployment mode and add this single script tag to your website HTML
                     </p>
                 </div>
 
                 <div className="max-w-2xl space-y-6">
-                    {product?.explorationStatus !== 'ready' && (
+                    {/* Mode Selector Card */}
+                    <div className="ultra-card p-6 space-y-4">
+                        <h2 className="font-bold text-sm" style={{ color: 'var(--text-main)' }}>Select Deployment Mode</h2>
+                        <div className="grid grid-cols-3 gap-3">
+                            <button
+                                type="button"
+                                onClick={() => setEmbedMode('choice')}
+                                className={`p-4 rounded-xl text-left border transition-all cursor-pointer ${
+                                    embedMode === 'choice'
+                                        ? 'border-purple-500 bg-purple-500/15 shadow-lg'
+                                        : 'border-white/10 bg-white/[0.02] hover:bg-white/[0.05]'
+                                }`}
+                            >
+                                <span className="text-xl block mb-2">🌐</span>
+                                <h3 className="font-bold text-xs text-white">Visitor Choice</h3>
+                                <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                                    Lets your visitor choose between 1-on-1 Chat or Live Demo.
+                                </p>
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => setEmbedMode('chat')}
+                                className={`p-4 rounded-xl text-left border transition-all cursor-pointer ${
+                                    embedMode === 'chat'
+                                        ? 'border-purple-500 bg-purple-500/15 shadow-lg'
+                                        : 'border-white/10 bg-white/[0.02] hover:bg-white/[0.05]'
+                                }`}
+                            >
+                                <span className="text-xl block mb-2">💬</span>
+                                <h3 className="font-bold text-xs text-white">1-on-1 Avatar Chat</h3>
+                                <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                                    Direct conversational consultation using all stored knowledge. No browser navigation.
+                                </p>
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => setEmbedMode('demo')}
+                                className={`p-4 rounded-xl text-left border transition-all cursor-pointer ${
+                                    embedMode === 'demo'
+                                        ? 'border-purple-500 bg-purple-500/15 shadow-lg'
+                                        : 'border-white/10 bg-white/[0.02] hover:bg-white/[0.05]'
+                                }`}
+                            >
+                                <span className="text-xl block mb-2">⚡</span>
+                                <h3 className="font-bold text-xs text-white">Live Product Demo</h3>
+                                <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                                    Interactive walkthrough where Sofia navigates live in the browser.
+                                </p>
+                            </button>
+                        </div>
+                    </div>
+
+                    {embedMode === 'demo' && product?.explorationStatus !== 'ready' && (
                         <div className="rounded-2xl p-4 flex items-center gap-3 border-l-4"
                             style={{ background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.25)', borderLeftColor: '#f59e0b' }}>
                             <p className="text-xs font-bold text-amber-400">
-                                ⚠️ Product exploration in progress. Embed code will activate live once exploration completes.
+                                ⚠️ Product exploration in progress. Browser demo will activate live once exploration completes. 1-on-1 Avatar Chat is ready now.
                             </p>
                         </div>
                     )}
 
                     {/* Code Card */}
                     <div className="ultra-card p-6 space-y-4">
-                        <h2 className="font-bold text-sm" style={{ color: 'var(--text-main)' }}>Your Live Embed Code</h2>
+                        <div className="flex items-center justify-between">
+                            <h2 className="font-bold text-sm" style={{ color: 'var(--text-main)' }}>Your Live Embed Code</h2>
+                            <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-purple-500/20 text-purple-300">
+                                mode: {embedMode}
+                            </span>
+                        </div>
                         <div className="rounded-xl p-4 font-mono text-xs overflow-x-auto break-all"
                             style={{ background: 'var(--bg-input)', border: '1px solid var(--border-light)', color: 'var(--accent-primary)' }}>
                             <code>{embedCode}</code>
@@ -84,9 +148,9 @@ export default function Embed() {
                         <h2 className="font-bold text-sm" style={{ color: 'var(--text-main)' }}>Installation Instructions</h2>
                         <div className="space-y-4">
                             {[
-                                { step: '01', title: 'Copy Embed Code', desc: 'Click the copy button above to retrieve your unique script tag.' },
+                                { step: '01', title: 'Copy Embed Code', desc: 'Click the copy button above to retrieve your configured script tag.' },
                                 { step: '02', title: 'Paste Before </body>', desc: 'Open your website HTML template and paste the code right before the closing </body> tag.' },
-                                { step: '03', title: 'Live Demonstration Ready', desc: 'A floating "Live Demo" button will automatically appear in the bottom right corner of your website.' },
+                                { step: '03', title: 'Live AI Specialist Ready', desc: `A floating button will automatically appear in the bottom right corner of your website (${embedMode === 'chat' ? 'Chat with Sofia' : 'Live Demo'}).` },
                             ].map(item => (
                                 <div key={item.step} className="flex gap-4">
                                     <span className="font-extrabold text-sm w-6 flex-shrink-0" style={{ color: 'var(--accent-primary)' }}>{item.step}</span>
@@ -108,7 +172,7 @@ export default function Embed() {
                             <div className="absolute bottom-4 right-4 text-white px-4 py-2.5 rounded-full text-xs font-bold flex items-center gap-2 shadow-xl cursor-pointer"
                                 style={{ background: 'var(--accent-gradient)', boxShadow: 'var(--shadow-glow)' }}>
                                 <div className="w-2.5 h-2.5 rounded-full animate-pulse bg-emerald-400" />
-                                Live Demo
+                                {embedMode === 'chat' ? '💬 Chat with Sofia' : '⚡ Live Demo'}
                             </div>
                         </div>
                     </div>

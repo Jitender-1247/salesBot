@@ -5,7 +5,8 @@ import BackButton from '../components/BackButton';
 import api from '../api';
 
 const BOT_INFO = {
-    salesbot: { name: 'SalesBot', personaName: 'Sofia', icon: '⚡' },
+    salesbot: { name: 'SalesBot (Live Demo)', personaName: 'Sofia', icon: '⚡' },
+    avatarbot: { name: 'AvatarBot (1-on-1 Chat)', personaName: 'Sofia', icon: '💬' },
 };
 
 const COLORS = ['#8b5cf6', '#10b981', '#f59e0b', '#f43f5e', '#38bdf8', '#06b6d4'];

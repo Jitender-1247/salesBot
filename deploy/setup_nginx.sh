@@ -9,10 +9,10 @@ echo "=== SalesBot Frontend & Nginx Deployment ==="
 echo "Repository root: $REPO_ROOT"
 
 # Ensure target directories exist
-sudo mkdir -p /var/www/salesbot/widget /var/www/salesbot/dashboard
-sudo mkdir -p /var/www/html/widget /var/www/html/dashboard
+sudo mkdir -p /var/www/salesbot/widget /var/www/salesbot/widget2 /var/www/salesbot/dashboard
+sudo mkdir -p /var/www/html/widget /var/www/html/widget2 /var/www/html/dashboard
 
-# 1. Clean and deploy Widget
+# 1. Clean and deploy Widget (Demo Walkthrough)
 if [ -d "$REPO_ROOT/frontend/widget/dist" ]; then
     echo "Deploying fresh Widget build to /var/www/salesbot/widget..."
     sudo rm -rf /var/www/salesbot/widget/* /var/www/html/widget/*
@@ -22,6 +22,17 @@ if [ -d "$REPO_ROOT/frontend/widget/dist" ]; then
 else
     echo "❌ ERROR: $REPO_ROOT/frontend/widget/dist not found!"
     exit 1
+fi
+
+# 1b. Clean and deploy Widget2 (Avatar 1-on-1 Chat)
+if [ -d "$REPO_ROOT/frontend/widget2/dist" ]; then
+    echo "Deploying fresh Widget2 build to /var/www/salesbot/widget2..."
+    sudo rm -rf /var/www/salesbot/widget2/* /var/www/html/widget2/*
+    sudo cp -r "$REPO_ROOT/frontend/widget2/dist"/* /var/www/salesbot/widget2/
+    sudo cp -r "$REPO_ROOT/frontend/widget2/dist"/* /var/www/html/widget2/ 2>/dev/null || true
+    echo "✅ Widget2 build deployed successfully!"
+else
+    echo "⚠️ Warning: $REPO_ROOT/frontend/widget2/dist not found. Skipping widget2."
 fi
 
 # 2. Clean and deploy Dashboard
@@ -40,7 +51,13 @@ fi
 sudo chown -R www-data:www-data /var/www/salesbot /var/www/html
 sudo chmod -R 755 /var/www/salesbot /var/www/html
 
-# 4. Reload Nginx
+# 4. Sync Nginx configuration
+if [ -f "$REPO_ROOT/deploy/nginx.conf" ]; then
+    echo "Updating Nginx configuration from deploy/nginx.conf..."
+    sudo cp "$REPO_ROOT/deploy/nginx.conf" /etc/nginx/sites-available/default
+fi
+
+# 5. Reload Nginx
 echo "Reloading Nginx..."
 sudo nginx -t
 sudo systemctl reload nginx || sudo systemctl restart nginx

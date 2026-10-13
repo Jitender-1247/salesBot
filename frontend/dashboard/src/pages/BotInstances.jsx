@@ -5,8 +5,10 @@ import BackButton from '../components/BackButton';
 import api from '../api';
 
 const BOT_INFO = {
-    salesbot: { name: 'SalesBot', personaName: 'Sofia', icon: '⚡',
-        description: 'AI voice agent that gives live, personalized product demos to your website visitors.' },
+    salesbot: { name: 'SalesBot (Live Demo)', personaName: 'Sofia', icon: '⚡',
+        description: 'AI voice & vision agent that gives live, personalized product walkthroughs.' },
+    avatarbot: { name: 'AvatarBot (1-on-1 Chat)', personaName: 'Sofia', icon: '💬',
+        description: 'Direct 1-on-1 conversational avatar agent that consults and sells using your stored product knowledge.' },
 };
 
 export default function BotInstances() {

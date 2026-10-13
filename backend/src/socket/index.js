@@ -1,6 +1,7 @@
 import { Server } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import { CallOrchestrator } from '../call/orchestrator.js';
+import { ChatOrchestrator } from '../call/chatOrchestrator.js';
 import { generateToken } from '../call/room.js';
 import { AgentDispatchClient } from 'livekit-server-sdk';
 import Call from '../models/Call.js';
@@ -13,6 +14,7 @@ import {
 } from '../utils/redis.js';
 
 const orchestrators = new Map();
+const chatOrchestrators = new Map();
 const screenshotIntervals = new Map();
 
 // Configurable stale call timeout: max session duration + 2 minute grace period
@@ -191,9 +193,115 @@ export function initSocket(server) {
             }
         });
 
+        // ── 1-on-1 Avatar Chat Mode (widget2) ──
+        socket.on('start-chat', async ({ productId, prospectName, prospectEmail }) => {
+            try {
+                console.log(`💬 Starting 1-on-1 Avatar Chat for product: ${productId}`);
+
+                const product = await Product.findById(productId);
+                if (!product) {
+                    socket.emit('error', 'Product not found');
+                    return;
+                }
+
+                const roomName = `chat-${productId}-${uuidv4()}`;
+                const call = await Call.create({
+                    productId,
+                    clientId: product.clientId,
+                    roomUrl: roomName,
+                    status: 'active',
+                    prospectName: prospectName || '',
+                    prospectEmail: prospectEmail || '',
+                    mode: 'chat'
+                });
+
+                const callId = call._id.toString();
+
+                const slot = await acquireSessionSlot(callId);
+                if (!slot.allowed) {
+                    console.log(`⏳ Chat session queued: ${callId} (position ${slot.position})`);
+                    socket.emit('demo-queued', {
+                        callId,
+                        position: slot.position,
+                        estimatedWaitSeconds: slot.estimatedWaitSeconds,
+                    });
+                    await Call.findByIdAndUpdate(callId, { status: 'failed', endReason: 'error' });
+                    return;
+                }
+
+                socket.join(callId);
+
+                socket.emit('session-config', {
+                    maxDurationSeconds: MAX_SESSION_SEC,
+                    maxConcurrent: MAX_CONCURRENT,
+                });
+
+                const visitorToken = await generateToken(roomName, `visitor-${socket.id}`);
+                const agentToken = await generateToken(roomName, 'agent-alex');
+
+                const suggestedQuestions = [];
+                if (product.knowledgeMap?.pages) {
+                    for (const p of product.knowledgeMap.pages) {
+                        if (p.commonQuestions?.length) {
+                            suggestedQuestions.push(...p.commonQuestions);
+                        }
+                    }
+                }
+
+                const payload = {
+                    callId,
+                    roomName,
+                    visitorToken,
+                    agentToken,
+                    livekitUrl: process.env.LIVEKIT_URL,
+                    mode: 'chat',
+                    productName: product.name,
+                    productSummary: product.knowledgeMap?.productSummary || '',
+                    suggestedQuestions: [...new Set(suggestedQuestions)].slice(0, 5)
+                };
+
+                socket.emit('chat-started', payload);
+                socket.emit('demo-started', payload);
+
+                const orchestrator = new ChatOrchestrator(productId, callId, io, roomName);
+                chatOrchestrators.set(callId, orchestrator);
+                socket.activeCallId = callId;
+
+                orchestrator.start().then(() => {
+                    console.log(`💬 [${callId}] 1-on-1 Avatar Chat session ready`);
+                }).catch(err => {
+                    console.warn(`⚠️ [${callId}] Chat startup error:`, err.message);
+                });
+
+                setTimeout(() => {
+                    orchestrator.sendGreeting().catch(e => console.warn('Greeting notice:', e.message));
+                }, 300);
+
+                // Dispatch Keyframe avatar
+                (async () => {
+                    try {
+                        const lkUrl = process.env.LIVEKIT_URL.replace('wss://', 'https://');
+                        const agentDispatch = new AgentDispatchClient(
+                            lkUrl,
+                            process.env.LIVEKIT_API_KEY,
+                            process.env.LIVEKIT_API_SECRET
+                        );
+                        await agentDispatch.createDispatch(roomName, 'keyframe-avatar');
+                        console.log(`🎤 Keyframe agent dispatched to room: ${roomName}`);
+                    } catch (dispatchErr) {
+                        console.warn('ℹ️ Keyframe agent dispatch notice:', dispatchErr.message);
+                    }
+                })();
+
+            } catch (err) {
+                console.log('❌ Start chat error:', err.message);
+                socket.emit('demo-error', { message: err.message });
+            }
+        });
+
         // Receive complete audio blob from visitor (VAD-triggered on client)
         socket.on('audio-blob', async ({ callId, audio }) => {
-            const orchestrator = orchestrators.get(callId);
+            const orchestrator = orchestrators.get(callId) || chatOrchestrators.get(callId);
             if (orchestrator) {
                 const audioBuffer = Buffer.from(audio);
                 await orchestrator.handleAudioBlob(audioBuffer);
@@ -202,7 +310,7 @@ export function initSocket(server) {
 
         // Receive direct text message from visitor (chat / voice fallback)
         socket.on('user-message', async ({ callId, text }) => {
-            const orchestrator = orchestrators.get(callId);
+            const orchestrator = orchestrators.get(callId) || chatOrchestrators.get(callId);
             if (orchestrator && text && text.trim()) {
                 console.log(`💬 [${callId}] Received text message from user: "${text.trim()}"`);
                 await orchestrator.handleUserSpeech(text.trim(), orchestrator.currentLanguage || 'en');
@@ -211,9 +319,27 @@ export function initSocket(server) {
 
         // Frontend signals that agent audio finished playing
         socket.on('audio-playback-complete', ({ callId }) => {
-            const orchestrator = orchestrators.get(callId);
+            const orchestrator = orchestrators.get(callId) || chatOrchestrators.get(callId);
             if (orchestrator) {
                 orchestrator.handleAudioPlaybackComplete();
+            }
+        });
+
+        // Visitor ends chat
+        socket.on('end-chat', async ({ callId, prospectEmail, prospectName }) => {
+            try {
+                const orchestrator = chatOrchestrators.get(callId);
+                if (orchestrator) {
+                    await orchestrator.end(prospectEmail || '', prospectName || '', 'completed', 'user');
+                    chatOrchestrators.delete(callId);
+                }
+                const nextCallId = await releaseSessionSlot(callId);
+                socket.activeCallId = null;
+                socket.emit('chat-ended', { callId });
+                socket.emit('demo-ended', { callId });
+                console.log(`🏁 Chat ended: ${callId}`);
+            } catch (err) {
+                console.log('❌ End chat error:', err.message);
             }
         });
 
@@ -227,21 +353,27 @@ export function initSocket(server) {
                     screenshotIntervals.delete(callId);
                 }
 
-                const orchestrator = orchestrators.get(callId);
-                if (orchestrator) {
-                    await orchestrator.end(prospectEmail || '', prospectName || '', 'completed', 'user');
+                const demoOrch = orchestrators.get(callId);
+                if (demoOrch) {
+                    await demoOrch.end(prospectEmail || '', prospectName || '', 'completed', 'user');
                     orchestrators.delete(callId);
+                }
+
+                const chatOrch = chatOrchestrators.get(callId);
+                if (chatOrch) {
+                    await chatOrch.end(prospectEmail || '', prospectName || '', 'completed', 'user');
+                    chatOrchestrators.delete(callId);
                 }
 
                 // Release session slot and promote next queued session
                 const nextCallId = await releaseSessionSlot(callId);
                 if (nextCallId) {
                     console.log(`🔄 Promoting queued session: ${nextCallId}`);
-                    // In a full implementation, you'd notify the queued socket to retry
                 }
 
                 socket.activeCallId = null;
                 socket.emit('demo-ended', { callId });
+                socket.emit('chat-ended', { callId });
                 console.log(`🏁 Demo ended: ${callId}`);
             } catch (err) {
                 console.log('❌ End demo error:', err.message);
@@ -250,7 +382,7 @@ export function initSocket(server) {
 
         // Triggered by frontend when Keyframe video track attaches
         socket.on('avatar-ready', async ({ callId }) => {
-            const orchestrator = orchestrators.get(callId);
+            const orchestrator = orchestrators.get(callId) || chatOrchestrators.get(callId);
             if (orchestrator) {
                 await orchestrator.sendGreeting();
             }
@@ -270,11 +402,18 @@ export function initSocket(server) {
                     screenshotIntervals.delete(callId);
                 }
 
-                const orchestrator = orchestrators.get(callId);
-                if (orchestrator) {
-                    await orchestrator.end('', '', 'failed', 'disconnect');
+                const demoOrch = orchestrators.get(callId);
+                if (demoOrch) {
+                    await demoOrch.end('', '', 'failed', 'disconnect');
                     orchestrators.delete(callId);
-                    console.log(`⚠️ Call ${callId} marked failed (visitor disconnected)`);
+                    console.log(`⚠️ Demo call ${callId} marked failed (visitor disconnected)`);
+                }
+
+                const chatOrch = chatOrchestrators.get(callId);
+                if (chatOrch) {
+                    await chatOrch.end('', '', 'failed', 'disconnect');
+                    chatOrchestrators.delete(callId);
+                    console.log(`⚠️ Chat call ${callId} marked failed (visitor disconnected)`);
                 }
 
                 // Release session slot

@@ -37,6 +37,13 @@ const callSchema = new mongoose.Schema({
     default: 'active'
   },
 
+  // Session mode: 'demo' (live browser walkthrough) or 'chat' (1-on-1 avatar conversation)
+  mode: {
+    type: String,
+    enum: ['demo', 'chat'],
+    default: 'demo'
+  },
+
   // Why the session ended (for analytics & resource tracking)
   endReason: {
     type: String,
