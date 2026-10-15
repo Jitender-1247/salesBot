@@ -65,6 +65,8 @@ app.use('/api/', apiLimiter);
 
 // Serve public folder (agent.js + test.html)
 app.use(express.static(join(__dirname, '../public')));
+app.use('/widget3', express.static(join(__dirname, '../../frontend/widget3/dist')));
+app.use('/widget2', express.static(join(__dirname, '../../frontend/widget2/dist')));
 
 // Routes
 app.use('/api/auth', authRoutes);

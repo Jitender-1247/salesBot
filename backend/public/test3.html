@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Widget 3 Testbed — SaleAssist Style AI Video Agent</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #090a12;
+            color: #f8fafc;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+        header {
+            padding: 24px 48px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            background: rgba(14, 16, 26, 0.7);
+            backdrop-filter: blur(12px);
+        }
+        .logo {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 20px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #a78bfa 0%, #38bdf8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .nav-links { display: flex; gap: 24px; font-size: 14px; color: #94a3b8; }
+        .hero {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 80px 24px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        .pill {
+            background: rgba(124, 58, 237, 0.15);
+            border: 1px solid rgba(139, 92, 246, 0.35);
+            color: #c4b5fd;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 24px;
+        }
+        h1 {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 54px;
+            font-weight: 800;
+            line-height: 1.15;
+            letter-spacing: -1px;
+            margin-bottom: 20px;
+        }
+        h1 span {
+            background: linear-gradient(135deg, #c084fc 0%, #60a5fa 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        p.subtitle {
+            font-size: 18px;
+            color: #94a3b8;
+            max-width: 640px;
+            line-height: 1.6;
+            margin-bottom: 36px;
+        }
+        .cta-group {
+            display: flex;
+            gap: 16px;
+        }
+        .btn {
+            padding: 14px 28px;
+            border-radius: 12px;
+            font-weight: 700;
+            font-size: 14px;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.2s ease;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
+            color: #fff;
+            box-shadow: 0 8px 24px rgba(124, 58, 237, 0.4);
+            border: none;
+        }
+        .btn-secondary {
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.12);
+            color: #e2e8f0;
+        }
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 24px;
+            max-width: 1000px;
+            margin: 0 auto 80px auto;
+            padding: 0 24px;
+        }
+        .feature-card {
+            background: rgba(18, 20, 32, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
+            padding: 24px;
+            text-align: left;
+        }
+        .feature-card h3 {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 16px;
+            margin-bottom: 8px;
+            color: #fff;
+        }
+        .feature-card p {
+            font-size: 13px;
+            color: #94a3b8;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo">⚡ CloudScale Enterprise</div>
+        <div class="nav-links">
+            <span>Features</span>
+            <span>Solutions</span>
+            <span>Pricing</span>
+            <span>Docs</span>
+        </div>
+    </header>
+
+    <main class="hero">
+        <div class="pill">✨ Next-Generation AI Engagement</div>
+        <h1>Meet Your <span>AI Video Sales Agent</span> That Converts Visitors</h1>
+        <p class="subtitle">
+            Experience 1-on-1 humanlike AI video consultations with complete product knowledge. Look at the bottom-right corner to speak directly with Sofia!
+        </p>
+        <div class="cta-group">
+            <button class="btn btn-primary" onclick="alert('Tap the Sofia video bubble in the bottom right corner!')">
+                Talk to Sales Avatar
+            </button>
+            <button class="btn btn-secondary">Explore Platform</button>
+        </div>
+    </main>
+
+    <section class="features-grid">
+        <div class="feature-card">
+            <h3>🎥 Face-to-Face Video Consultation</h3>
+            <p>1-on-1 real-time voice and lip-synced video streaming that feels like a live sales call.</p>
+        </div>
+        <div class="feature-card">
+            <h3>🧠 Autonomous Product Intelligence</h3>
+            <p>Backed by our crawling knowledge map, answering complex questions with zero guesswork.</p>
+        </div>
+        <div class="feature-card">
+            <h3>💳 Interactive Shoppable Cards</h3>
+            <p>Pops up relevant feature highlights, demos, and direct links without page hijacking.</p>
+        </div>
+    </section>
+
+    <!-- ── Widget 3 Embed ── -->
+    <script
+        src="/video-agent.js"
+        data-product-id="test-product"
+        data-server="http://localhost:5000"
+        data-widget-url="http://localhost:5176/widget3/">
+    </script>
+</body>
+</html>

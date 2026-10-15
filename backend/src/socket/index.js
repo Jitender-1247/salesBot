@@ -257,6 +257,7 @@ export function initSocket(server) {
                     mode: 'chat',
                     productName: product.name,
                     productSummary: product.knowledgeMap?.productSummary || '',
+                    knowledgeMap: product.knowledgeMap || null,
                     suggestedQuestions: [...new Set(suggestedQuestions)].slice(0, 5)
                 };
 

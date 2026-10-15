@@ -269,6 +269,26 @@ export class ChatOrchestrator {
                 this.transcript += `\nSofia: ${responseText}`;
                 this.messages.push({ role: 'agent', content: responseText, timestamp: new Date() });
                 this.conversationHistory.push({ role: 'assistant', content: responseText });
+
+                // Check if response matches a section in knowledgeMap and emit visual card
+                if (this.product.knowledgeMap?.pages?.length) {
+                    const match = this.product.knowledgeMap.pages.find(p =>
+                        p.name && (
+                            responseText.toLowerCase().includes(p.name.toLowerCase()) ||
+                            (transcript && transcript.toLowerCase().includes(p.name.toLowerCase()))
+                        )
+                    );
+                    if (match) {
+                        this.io.to(this.callId).emit('agent-card', {
+                            name: match.name,
+                            description: match.description,
+                            keyFeatures: match.keyFeatures,
+                            url: match.url,
+                            screenshot: match.screenshot
+                        });
+                    }
+                }
+
                 await this.agentSpeak(responseText, interruptId);
             }
 

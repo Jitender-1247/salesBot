@@ -9,8 +9,8 @@ echo "=== SalesBot Frontend & Nginx Deployment ==="
 echo "Repository root: $REPO_ROOT"
 
 # Ensure target directories exist
-sudo mkdir -p /var/www/salesbot/widget /var/www/salesbot/widget2 /var/www/salesbot/dashboard
-sudo mkdir -p /var/www/html/widget /var/www/html/widget2 /var/www/html/dashboard
+sudo mkdir -p /var/www/salesbot/widget /var/www/salesbot/widget2 /var/www/salesbot/widget3 /var/www/salesbot/dashboard
+sudo mkdir -p /var/www/html/widget /var/www/html/widget2 /var/www/html/widget3 /var/www/html/dashboard
 
 # 1. Clean and deploy Widget (Demo Walkthrough)
 if [ -d "$REPO_ROOT/frontend/widget/dist" ]; then
@@ -33,6 +33,17 @@ if [ -d "$REPO_ROOT/frontend/widget2/dist" ]; then
     echo "✅ Widget2 build deployed successfully!"
 else
     echo "⚠️ Warning: $REPO_ROOT/frontend/widget2/dist not found. Skipping widget2."
+fi
+
+# 1c. Clean and deploy Widget3 (SaleAssist-Style Video Sales Agent)
+if [ -d "$REPO_ROOT/frontend/widget3/dist" ]; then
+    echo "Deploying fresh Widget3 build to /var/www/salesbot/widget3..."
+    sudo rm -rf /var/www/salesbot/widget3/* /var/www/html/widget3/*
+    sudo cp -r "$REPO_ROOT/frontend/widget3/dist"/* /var/www/salesbot/widget3/
+    sudo cp -r "$REPO_ROOT/frontend/widget3/dist"/* /var/www/html/widget3/ 2>/dev/null || true
+    echo "✅ Widget3 build deployed successfully!"
+else
+    echo "⚠️ Warning: $REPO_ROOT/frontend/widget3/dist not found. Skipping widget3."
 fi
 
 # 2. Clean and deploy Dashboard
