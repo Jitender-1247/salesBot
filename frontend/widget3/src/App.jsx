@@ -2,7 +2,9 @@ import { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import ChatView from './components/ChatView';
 
-const BACKEND_URL = '';
+const BACKEND_URL = import.meta.env.PROD
+    ? ''
+    : (import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000');
 const AVATAR_IMG = '/widget3/alex-avatar.png';
 const FALLBACK_AVATAR_IMG = '/alex-avatar.png';
 

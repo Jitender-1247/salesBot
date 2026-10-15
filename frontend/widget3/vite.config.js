@@ -7,6 +7,17 @@ export default defineConfig({
     react(),
   ],
   server: {
-    port: 5176
-  }
+    port: 5176,
+    proxy: {
+      '/socket.io': {
+        target: 'http://localhost:5000',
+        ws: true,
+        changeOrigin: true,
+      },
+      '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+      },
+    },
+  },
 })
