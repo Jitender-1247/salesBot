@@ -1,5 +1,6 @@
 import { chromium } from 'playwright';
 import { decrypt } from '../utils/encryption.js';
+import { checkUrl, guardBrowserContext } from '../utils/urlSafety.js';
 import Product from '../models/Product.js';
 import dotenv from 'dotenv';
 import Groq from 'groq-sdk';
@@ -206,6 +207,13 @@ export async function exploreProduct(productId) {
     const product = await Product.findById(productId);
     if (!product) throw new Error('Product not found');
 
+    // Re-check at exploration time: DNS may have changed since the product was saved
+    const urlProblem = await checkUrl(product.url);
+    if (urlProblem) {
+        await Product.findByIdAndUpdate(productId, { explorationStatus: 'failed' });
+        throw new Error(`Refusing to explore ${product.url}: ${urlProblem}`);
+    }
+
     await Product.findByIdAndUpdate(productId, { explorationStatus: 'exploring' });
 
     const browser = await chromium.launch({
@@ -223,6 +231,7 @@ export async function exploreProduct(productId) {
         viewport: { width: 1280, height: 720 },
         locale: 'en-US',
     });
+    await guardBrowserContext(browserContext);
     await browserContext.addInitScript(() => {
         Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
     });

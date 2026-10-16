@@ -2,7 +2,7 @@ import { transcribeAudio } from '../agent/stt.js';
 import { speak } from '../agent/tts.js';
 import { think } from '../agent/brain/index.js';
 import { Navigator } from '../agent/navigator/index.js';
-import { decrypt } from '../utils/encryption.js';
+import { decrypt, decryptIfEncrypted } from '../utils/encryption.js';
 import { generateToken } from '../call/room.js';
 import { RoomServiceClient } from 'livekit-server-sdk';
 import Product from '../models/Product.js';
@@ -125,6 +125,7 @@ export class CallOrchestrator {
             this.startTime = Date.now();
 
             // Launch browser and login (uses stored cookies if available to bypass form login)
+            this.navigator.setAllowedUrls([this.product.url, this.product.demoStartUrl]);
             await this.navigator.launch();
             const _email = this.product.credentials?.email ? decrypt(this.product.credentials.email) : '';
             const _password = this.product.credentials?.password ? decrypt(this.product.credentials.password) : '';
@@ -133,7 +134,7 @@ export class CallOrchestrator {
                 this.product.knowledgeMap.loginSteps,
                 _email,
                 _password,
-                this.product.sessionCookies || null,
+                this.product.sessionCookies ? decryptIfEncrypted(this.product.sessionCookies) : null,
                 this.product.demoStartUrl || null
             );
 

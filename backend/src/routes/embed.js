@@ -1,7 +1,9 @@
 import express from 'express';
 import Product from '../models/Product.js';
+import { objectIdParam } from '../utils/validate.js';
 
 const router = express.Router();
+router.param('productId', objectIdParam);
 
 // Public route — get product info for widget
 router.get('/:productId', async (req, res) => {
@@ -23,7 +25,8 @@ router.get('/:productId', async (req, res) => {
             summary: product.knowledgeMap?.productSummary
         });
     } catch (err) {
-        res.status(500).json({ message: 'Server error', error: err.message });
+        console.error('Embed route error:', err);
+        res.status(500).json({ message: 'Server error' });
     }
 });
 

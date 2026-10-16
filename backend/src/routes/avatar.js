@@ -69,9 +69,9 @@ router.post('/', async (req, res) => {
     }
 
     try {
-        const { text } = req.body;
-        if (!text || typeof text !== 'string') {
-            return res.status(400).json({ error: 'Text is required' });
+        const { text } = req.body || {};
+        if (!text || typeof text !== 'string' || text.length > 1000) {
+            return res.status(400).json({ error: 'Text is required (max 1000 characters)' });
         }
 
         const payload = {
@@ -98,8 +98,8 @@ router.post('/', async (req, res) => {
         });
 
         if (!response.ok) {
-            const details = await response.text();
-            return res.status(response.status).json({ error: 'D-ID request failed', details });
+            console.error('D-ID request failed:', response.status, await response.text());
+            return res.status(502).json({ error: 'D-ID request failed' });
         }
 
         const data = await response.json();
@@ -121,7 +121,7 @@ router.post('/', async (req, res) => {
         return res.json({ resultUrl });
     } catch (error) {
         console.log('❌ Avatar error:', error.message);
-        return res.status(500).json({ error: 'Failed to generate D-ID avatar', details: String(error) });
+        return res.status(500).json({ error: 'Failed to generate D-ID avatar' });
     }
 });
 

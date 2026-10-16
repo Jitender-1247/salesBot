@@ -12,9 +12,8 @@ Port: 8787
 
 import os
 import asyncio
-import shutil
 import tempfile
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from faster_whisper import WhisperModel
 import uvicorn
@@ -31,6 +30,7 @@ app.add_middleware(
 # Load model on startup (CPU mode with INT8 for speed)
 # tiny = ~250ms, base = ~900ms — tiny is fine for clear voice input
 MODEL_SIZE = os.environ.get("WHISPER_MODEL", "base")
+MAX_UPLOAD_BYTES = int(os.environ.get("STT_MAX_UPLOAD_BYTES", str(10 * 1024 * 1024)))
 print(f"Loading Whisper model: {MODEL_SIZE} (CPU, INT8)...")
 whisper_model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8")
 print(f"[OK] Whisper model '{MODEL_SIZE}' loaded successfully!")
@@ -49,11 +49,24 @@ async def transcribe(
     response_format: str = Form("json"),
 ):
     """OpenAI-compatible transcription endpoint."""
-    # Save uploaded file to temp location
-    suffix = os.path.splitext(file.filename or "audio.webm")[1] or ".webm"
+    if language != "auto" and not (language.isalpha() and 2 <= len(language) <= 3):
+        raise HTTPException(status_code=400, detail="Invalid language code")
+
+    # Only keep a short alphanumeric extension from the client-supplied filename
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    suffix = ext if ext[1:].isalnum() and len(ext) <= 6 else ".webm"
+
+    # Save uploaded file to temp location, enforcing a size cap
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        shutil.copyfileobj(file.file, tmp)
         tmp_path = tmp.name
+        written = 0
+        while chunk := file.file.read(1024 * 1024):
+            written += len(chunk)
+            if written > MAX_UPLOAD_BYTES:
+                tmp.close()
+                os.unlink(tmp_path)
+                raise HTTPException(status_code=413, detail="Audio file too large")
+            tmp.write(chunk)
 
     try:
         # Run CPU-bound transcription in a thread pool to keep event loop responsive

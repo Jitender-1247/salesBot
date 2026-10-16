@@ -2,8 +2,9 @@ services:
   # ── Redis (Session state, Socket.IO adapter, concurrency queue) ──
   redis:
     image: redis:7-alpine
+    # Bound to localhost only: Redis has no password and must never be reachable from the internet
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
@@ -22,8 +23,9 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    # Bound to localhost: nginx on the host proxies public traffic to it
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"
     env_file:
       - ./backend/.env
     environment:
@@ -53,7 +55,7 @@ services:
       dockerfile: Dockerfile
     command: [ "python", "stt_server.py" ]
     ports:
-      - "8787:8787"
+      - "127.0.0.1:8787:8787"
     volumes:
       - ./servers:/app
     restart: unless-stopped
@@ -65,7 +67,7 @@ services:
       dockerfile: Dockerfile
     command: [ "python", "tts_server.py" ]
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./servers:/app
     restart: unless-stopped

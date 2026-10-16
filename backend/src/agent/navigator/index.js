@@ -1,6 +1,7 @@
 import { chromium } from 'playwright';
 import { Room, RoomEvent, LocalVideoTrack, VideoSource } from '@livekit/rtc-node';
 import dotenv from 'dotenv';
+import { checkUrl, sameOrigin, guardBrowserContext } from '../../utils/urlSafety.js';
 dotenv.config();
 
 export class Navigator {
@@ -11,6 +12,18 @@ export class Navigator {
         this.room = null;
         this.screencastStopper = null;
         this.isRemoteBrowser = false; // Track if using remote browser grid
+        this.allowedOrigins = []; // Origins the LLM may navigate to (set from the product URL)
+    }
+
+    /**
+     * Restrict LLM-driven navigation to the customer's own product. Visitors talk to the
+     * LLM, so without this a visitor could make the demo browser open arbitrary sites.
+     */
+    setAllowedUrls(urls) {
+        this.allowedOrigins = urls
+            .filter(Boolean)
+            .map(u => { try { return new URL(u).origin; } catch { return null; } })
+            .filter(Boolean);
     }
 
     async launch() {
@@ -47,6 +60,9 @@ export class Navigator {
         // Safety timeouts — prevent zombie pages from running forever
         this.context.setDefaultTimeout(30000);
         this.context.setDefaultNavigationTimeout(30000);
+
+        // Block navigation to internal network addresses and non-web schemes (SSRF protection)
+        await guardBrowserContext(this.context);
 
         // Remove the 'webdriver' property so bot-detection scripts won't find it
         await this.context.addInitScript(() => {
@@ -413,13 +429,21 @@ export class Navigator {
     async executeAction(toolName, toolArgs) {
         try {
             switch (toolName) {
-                case 'navigate_to':
+                case 'navigate_to': {
+                    const target = String(toolArgs.url || '');
+                    const unsafe = await checkUrl(target);
+                    const inProduct = this.allowedOrigins.some(origin => sameOrigin(origin, target));
+                    if (unsafe || !inProduct) {
+                        console.warn(`🛡️ Refused navigation to ${target}: ${unsafe || 'outside the product site'}`);
+                        break;
+                    }
                     console.log(`🔗 Navigating to: ${toolArgs.pageName}`);
-                    await this.page.goto(toolArgs.url, {
+                    await this.page.goto(target, {
                         waitUntil: 'domcontentloaded',
                         timeout: 15000
                     });
                     break;
+                }
 
                 case 'click_element': {
                     console.log(`👆 Clicking: ${toolArgs.description} (${toolArgs.selector})`);

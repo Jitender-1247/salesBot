@@ -12,6 +12,11 @@ import {
     acquireSessionSlot, releaseSessionSlot,
     MAX_CONCURRENT,
 } from '../utils/redis.js';
+import { isObjectId } from '../utils/validate.js';
+import { isPrivateAddress } from '../utils/urlSafety.js';
+
+// A socket may only control the call it started (callIds are not secrets: they appear in logs, URLs, etc.)
+const ownsCall = (socket, callId) => typeof callId === 'string' && socket.activeCallId === callId;
 
 const orchestrators = new Map();
 const chatOrchestrators = new Map();
@@ -20,6 +25,53 @@ const screenshotIntervals = new Map();
 // Configurable stale call timeout: max session duration + 2 minute grace period
 const MAX_SESSION_SEC = parseInt(process.env.MAX_SESSION_DURATION_SECONDS) || 300;
 const STALE_CALL_TIMEOUT_MS = (MAX_SESSION_SEC + 120) * 1000;
+
+// ── Abuse limits for the public widget socket ──
+// Every session launches Chromium / LLM / TTS work, so cap how often one IP can start them.
+const SESSION_STARTS_PER_WINDOW = parseInt(process.env.SESSION_STARTS_PER_IP) || 10;
+const SESSION_WINDOW_MS = 10 * 60 * 1000;
+const MAX_USER_MESSAGE_CHARS = 1000;
+const MAX_AUDIO_BLOB_BYTES = 5 * 1024 * 1024;
+const sessionStartsByIp = new Map(); // ip -> [timestamps]
+
+function clientIp(socket) {
+    const direct = (socket.handshake.address || '').replace(/^::ffff:/, '');
+    // Only trust X-Forwarded-For when the connection comes from our own proxy (nginx)
+    const forwarded = socket.handshake.headers['x-forwarded-for'];
+    if (forwarded && (!direct || isPrivateAddress(direct))) {
+        return String(forwarded).split(',')[0].trim();
+    }
+    return direct;
+}
+
+function allowSessionStart(ip) {
+    const now = Date.now();
+    const recent = (sessionStartsByIp.get(ip) || []).filter(t => now - t < SESSION_WINDOW_MS);
+    if (recent.length >= SESSION_STARTS_PER_WINDOW) {
+        sessionStartsByIp.set(ip, recent);
+        return false;
+    }
+    recent.push(now);
+    sessionStartsByIp.set(ip, recent);
+    return true;
+}
+
+setInterval(() => {
+    const now = Date.now();
+    for (const [ip, times] of sessionStartsByIp) {
+        if (!times.some(t => now - t < SESSION_WINDOW_MS)) sessionStartsByIp.delete(ip);
+    }
+}, SESSION_WINDOW_MS).unref();
+
+const cleanText = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+
+/** Validate a start request; returns an error message or null. */
+function checkStartRequest(socket, productId) {
+    if (!isObjectId(productId)) return 'Product not found';
+    if (socket.activeCallId) return 'A session is already active on this connection';
+    if (!allowSessionStart(clientIp(socket))) return 'Too many sessions started. Please try again in a few minutes.';
+    return null;
+}
 
 function startStaleCallSweep() {
     setInterval(async () => {
@@ -63,8 +115,16 @@ export function initSocket(server) {
         console.log(`🔌 Socket connected: ${socket.id}`);
 
         // Visitor starts a demo
-        socket.on('start-demo', async ({ productId, prospectName, prospectEmail }) => {
+        socket.on('start-demo', async (startArgs = {}) => {
             try {
+                const { productId } = startArgs;
+                const prospectName = cleanText(startArgs.prospectName, 200);
+                const prospectEmail = cleanText(startArgs.prospectEmail, 320);
+                const startError = checkStartRequest(socket, productId);
+                if (startError) {
+                    socket.emit('demo-error', { message: startError });
+                    return;
+                }
                 console.log(`🎬 Starting demo for product: ${productId}`);
 
                 const product = await Product.findById(productId);
@@ -102,6 +162,7 @@ export function initSocket(server) {
                 }
 
                 socket.join(callId);
+                socket.activeCallId = callId;
 
                 // Send session config to widget (max duration, etc.)
                 socket.emit('session-config', {
@@ -111,14 +172,12 @@ export function initSocket(server) {
 
                 // Generate LiveKit tokens
                 const visitorToken = await generateToken(roomName, `visitor-${socket.id}`);
-                const agentToken = await generateToken(roomName, 'agent-alex');
 
                 // Send tokens to visitor
                 socket.emit('demo-started', {
                     callId,
                     roomName,
                     visitorToken,
-                    agentToken,
                     livekitUrl: process.env.LIVEKIT_URL
                 });
 
@@ -189,13 +248,26 @@ export function initSocket(server) {
 
             } catch (err) {
                 console.log('❌ Start demo error:', err.message);
-                socket.emit('demo-error', { message: err.message });
+                // Free the slot reserved for this attempt so the visitor can retry
+                if (socket.activeCallId) {
+                    await releaseSessionSlot(socket.activeCallId).catch(() => {});
+                    socket.activeCallId = null;
+                }
+                socket.emit('demo-error', { message: 'Could not start the session. Please try again.' });
             }
         });
 
         // ── 1-on-1 Avatar Chat Mode (widget2) ──
-        socket.on('start-chat', async ({ productId, prospectName, prospectEmail }) => {
+        socket.on('start-chat', async (startArgs = {}) => {
             try {
+                const { productId } = startArgs;
+                const prospectName = cleanText(startArgs.prospectName, 200);
+                const prospectEmail = cleanText(startArgs.prospectEmail, 320);
+                const startError = checkStartRequest(socket, productId);
+                if (startError) {
+                    socket.emit('demo-error', { message: startError });
+                    return;
+                }
                 console.log(`💬 Starting 1-on-1 Avatar Chat for product: ${productId}`);
 
                 const product = await Product.findById(productId);
@@ -230,6 +302,7 @@ export function initSocket(server) {
                 }
 
                 socket.join(callId);
+                socket.activeCallId = callId;
 
                 socket.emit('session-config', {
                     maxDurationSeconds: MAX_SESSION_SEC,
@@ -237,7 +310,6 @@ export function initSocket(server) {
                 });
 
                 const visitorToken = await generateToken(roomName, `visitor-${socket.id}`);
-                const agentToken = await generateToken(roomName, 'agent-alex');
 
                 const suggestedQuestions = [];
                 if (product.knowledgeMap?.pages) {
@@ -252,7 +324,6 @@ export function initSocket(server) {
                     callId,
                     roomName,
                     visitorToken,
-                    agentToken,
                     livekitUrl: process.env.LIVEKIT_URL,
                     mode: 'chat',
                     productName: product.name,
@@ -296,57 +367,53 @@ export function initSocket(server) {
 
             } catch (err) {
                 console.log('❌ Start chat error:', err.message);
-                socket.emit('demo-error', { message: err.message });
+                // Free the slot reserved for this attempt so the visitor can retry
+                if (socket.activeCallId) {
+                    await releaseSessionSlot(socket.activeCallId).catch(() => {});
+                    socket.activeCallId = null;
+                }
+                socket.emit('demo-error', { message: 'Could not start the session. Please try again.' });
             }
         });
 
         // Receive complete audio blob from visitor (VAD-triggered on client)
-        socket.on('audio-blob', async ({ callId, audio }) => {
+        socket.on('audio-blob', async ({ callId, audio } = {}) => {
+            if (!ownsCall(socket, callId)) return;
             const orchestrator = orchestrators.get(callId) || chatOrchestrators.get(callId);
-            if (orchestrator) {
+            if (orchestrator && audio) {
                 const audioBuffer = Buffer.from(audio);
+                if (audioBuffer.length === 0 || audioBuffer.length > MAX_AUDIO_BLOB_BYTES) return;
                 await orchestrator.handleAudioBlob(audioBuffer);
             }
         });
 
         // Receive direct text message from visitor (chat / voice fallback)
-        socket.on('user-message', async ({ callId, text }) => {
+        socket.on('user-message', async ({ callId, text } = {}) => {
+            if (!ownsCall(socket, callId)) return;
+            const message = cleanText(text, MAX_USER_MESSAGE_CHARS);
             const orchestrator = orchestrators.get(callId) || chatOrchestrators.get(callId);
-            if (orchestrator && text && text.trim()) {
-                console.log(`💬 [${callId}] Received text message from user: "${text.trim()}"`);
-                await orchestrator.handleUserSpeech(text.trim(), orchestrator.currentLanguage || 'en');
+            if (orchestrator && message) {
+                console.log(`💬 [${callId}] Received text message from user (${message.length} chars)`);
+                await orchestrator.handleUserSpeech(message, orchestrator.currentLanguage || 'en');
             }
         });
 
         // Frontend signals that agent audio finished playing
-        socket.on('audio-playback-complete', ({ callId }) => {
+        socket.on('audio-playback-complete', ({ callId } = {}) => {
+            if (!ownsCall(socket, callId)) return;
             const orchestrator = orchestrators.get(callId) || chatOrchestrators.get(callId);
             if (orchestrator) {
                 orchestrator.handleAudioPlaybackComplete();
             }
         });
 
-        // Visitor ends chat
-        socket.on('end-chat', async ({ callId, prospectEmail, prospectName }) => {
+        // Visitor ends the session (widget: end-demo, widget2: end-chat, widget3: end-call)
+        const endSession = async ({ callId, prospectEmail, prospectName } = {}) => {
+            if (!ownsCall(socket, callId)) return;
             try {
-                const orchestrator = chatOrchestrators.get(callId);
-                if (orchestrator) {
-                    await orchestrator.end(prospectEmail || '', prospectName || '', 'completed', 'user');
-                    chatOrchestrators.delete(callId);
-                }
-                const nextCallId = await releaseSessionSlot(callId);
-                socket.activeCallId = null;
-                socket.emit('chat-ended', { callId });
-                socket.emit('demo-ended', { callId });
-                console.log(`🏁 Chat ended: ${callId}`);
-            } catch (err) {
-                console.log('❌ End chat error:', err.message);
-            }
-        });
+                const email = cleanText(prospectEmail, 320);
+                const name = cleanText(prospectName, 200);
 
-        // Visitor ends demo
-        socket.on('end-demo', async ({ callId, prospectEmail, prospectName }) => {
-            try {
                 // Stop screenshot interval
                 const interval = screenshotIntervals.get(callId);
                 if (interval) {
@@ -356,13 +423,13 @@ export function initSocket(server) {
 
                 const demoOrch = orchestrators.get(callId);
                 if (demoOrch) {
-                    await demoOrch.end(prospectEmail || '', prospectName || '', 'completed', 'user');
+                    await demoOrch.end(email, name, 'completed', 'user');
                     orchestrators.delete(callId);
                 }
 
                 const chatOrch = chatOrchestrators.get(callId);
                 if (chatOrch) {
-                    await chatOrch.end(prospectEmail || '', prospectName || '', 'completed', 'user');
+                    await chatOrch.end(email, name, 'completed', 'user');
                     chatOrchestrators.delete(callId);
                 }
 
@@ -375,14 +442,18 @@ export function initSocket(server) {
                 socket.activeCallId = null;
                 socket.emit('demo-ended', { callId });
                 socket.emit('chat-ended', { callId });
-                console.log(`🏁 Demo ended: ${callId}`);
+                console.log(`🏁 Session ended: ${callId}`);
             } catch (err) {
-                console.log('❌ End demo error:', err.message);
+                console.log('❌ End session error:', err.message);
             }
-        });
+        };
+        socket.on('end-demo', endSession);
+        socket.on('end-chat', endSession);
+        socket.on('end-call', endSession);
 
         // Triggered by frontend when Keyframe video track attaches
-        socket.on('avatar-ready', async ({ callId }) => {
+        socket.on('avatar-ready', async ({ callId } = {}) => {
+            if (!ownsCall(socket, callId)) return;
             const orchestrator = orchestrators.get(callId) || chatOrchestrators.get(callId);
             if (orchestrator) {
                 await orchestrator.sendGreeting();

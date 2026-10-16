@@ -11,6 +11,12 @@ dotenv.config();
 
 const router = express.Router();
 
+// IDs are interpolated into the D-ID URL path, so only allow plain identifier characters
+// (prevents path manipulation like "../../credits" against the D-ID API with our key).
+const SAFE_ID = /^[A-Za-z0-9_\-]{1,128}$/;
+const MAX_AUDIO_BASE64 = 8 * 1024 * 1024;
+const ALLOWED_AUDIO_TYPES = new Set(['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/webm', 'audio/ogg']);
+
 const D_ID_API_KEY = process.env.D_ID_API_KEY;
 const D_ID_API_BASE_URL = process.env.D_ID_API_BASE_URL || 'https://api.d-id.com';
 const D_ID_SOURCE_URL = process.env.D_ID_SOURCE_URL;
@@ -45,7 +51,7 @@ router.post('/create', async (req, res) => {
         if (!response.ok) {
             const text = await response.text();
             console.error('D-ID create stream error:', response.status, text);
-            return res.status(response.status).json({ error: 'D-ID stream creation failed', details: text });
+            return res.status(response.status).json({ error: 'D-ID stream creation failed' });
         }
 
         const data = await response.json();
@@ -53,7 +59,7 @@ router.post('/create', async (req, res) => {
         return res.json(data);
     } catch (err) {
         console.error('D-ID create stream exception:', err.message);
-        return res.status(500).json({ error: err.message });
+        return res.status(500).json({ error: 'D-ID request failed' });
     }
 });
 
@@ -61,7 +67,7 @@ router.post('/create', async (req, res) => {
 // Sends the client's SDP answer to D-ID to complete WebRTC negotiation
 router.post('/sdp', async (req, res) => {
     const { streamId, sessionId, answer } = req.body;
-    if (!streamId || !sessionId || !answer) {
+    if (!SAFE_ID.test(streamId || '') || typeof sessionId !== 'string' || !answer) {
         return res.status(400).json({ error: 'streamId, sessionId and answer are required' });
     }
 
@@ -79,13 +85,13 @@ router.post('/sdp', async (req, res) => {
         if (!response.ok) {
             const text = await response.text();
             console.error('D-ID SDP error:', response.status, text);
-            return res.status(response.status).json({ error: 'D-ID SDP exchange failed', details: text });
+            return res.status(response.status).json({ error: 'D-ID SDP exchange failed' });
         }
 
         return res.json({ ok: true });
     } catch (err) {
         console.error('D-ID SDP exception:', err.message);
-        return res.status(500).json({ error: err.message });
+        return res.status(500).json({ error: 'D-ID request failed' });
     }
 });
 
@@ -93,7 +99,7 @@ router.post('/sdp', async (req, res) => {
 // Forwards ICE candidates from the client to D-ID
 router.post('/ice', async (req, res) => {
     const { streamId, sessionId, candidate } = req.body;
-    if (!streamId || !sessionId) {
+    if (!SAFE_ID.test(streamId || '') || typeof sessionId !== 'string') {
         return res.status(400).json({ error: 'streamId and sessionId are required' });
     }
 
@@ -111,13 +117,13 @@ router.post('/ice', async (req, res) => {
         if (!response.ok) {
             const text = await response.text();
             console.error('D-ID ICE error:', response.status, text);
-            return res.status(response.status).json({ error: 'D-ID ICE exchange failed', details: text });
+            return res.status(response.status).json({ error: 'D-ID ICE exchange failed' });
         }
 
         return res.json({ ok: true });
     } catch (err) {
         console.error('D-ID ICE exception:', err.message);
-        return res.status(500).json({ error: err.message });
+        return res.status(500).json({ error: 'D-ID request failed' });
     }
 });
 
@@ -125,20 +131,21 @@ router.post('/ice', async (req, res) => {
 // Sends audio/text to D-ID to animate the avatar
 router.post('/talk', async (req, res) => {
     const { streamId, sessionId, audioBase64, mimeType } = req.body;
-    if (!streamId || !sessionId) {
+    if (!SAFE_ID.test(streamId || '') || typeof sessionId !== 'string') {
         return res.status(400).json({ error: 'streamId and sessionId are required' });
     }
 
     try {
         let script;
-        if (audioBase64) {
+        if (typeof audioBase64 === 'string' && audioBase64.length <= MAX_AUDIO_BASE64) {
+            const safeType = ALLOWED_AUDIO_TYPES.has(mimeType) ? mimeType : 'audio/mpeg';
             // Send raw audio for the avatar to lip-sync to
             script = {
                 type: 'audio',
-                audio_url: `data:${mimeType || 'audio/mpeg'};base64,${audioBase64}`,
+                audio_url: `data:${safeType};base64,${audioBase64}`,
             };
         } else {
-            return res.status(400).json({ error: 'audioBase64 is required' });
+            return res.status(400).json({ error: 'audioBase64 is required (max 8 MB)' });
         }
 
         const payload = {
@@ -164,14 +171,14 @@ router.post('/talk', async (req, res) => {
         if (!response.ok) {
             const text = await response.text();
             console.error('D-ID talk error:', response.status, text);
-            return res.status(response.status).json({ error: 'D-ID talk failed', details: text });
+            return res.status(response.status).json({ error: 'D-ID talk failed' });
         }
 
         const data = await response.json();
         return res.json(data);
     } catch (err) {
         console.error('D-ID talk exception:', err.message);
-        return res.status(500).json({ error: err.message });
+        return res.status(500).json({ error: 'D-ID request failed' });
     }
 });
 
@@ -179,7 +186,8 @@ router.post('/talk', async (req, res) => {
 // Closes a D-ID stream session to free up quota
 router.delete('/:streamId', async (req, res) => {
     const { streamId } = req.params;
-    const { sessionId } = req.body;
+    const { sessionId } = req.body || {};
+    if (!SAFE_ID.test(streamId)) return res.status(400).json({ error: 'Invalid streamId' });
 
     try {
         const response = await fetch(`${D_ID_API_BASE_URL}/talks/streams/${streamId}`, {
@@ -195,7 +203,7 @@ router.delete('/:streamId', async (req, res) => {
         return res.json({ ok: true });
     } catch (err) {
         console.error('D-ID delete stream exception:', err.message);
-        return res.status(500).json({ error: err.message });
+        return res.status(500).json({ error: 'D-ID request failed' });
     }
 });
 

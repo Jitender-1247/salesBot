@@ -30,3 +30,12 @@ pm2-*.log
 # OS
 .DS_Store
 Thumbs.db
+
+# Any local env file, in any package (keep the committed templates/examples)
+.env
+.env.local
+.env.*.local
+**/.env
+**/.env.local
+**/.env.*.local
+!**/.env.example

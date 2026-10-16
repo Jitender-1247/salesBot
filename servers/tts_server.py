@@ -19,7 +19,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import edge_tts
 import uvicorn
 
@@ -37,9 +37,9 @@ DEFAULT_VOICE = os.environ.get("EDGE_VOICE", "en-US-AriaNeural")
 
 class SpeechRequest(BaseModel):
     model: str = "edge"
-    input: str
+    input: str = Field(..., max_length=5000)
     voice: str = "default"
-    speed: float = 1.0
+    speed: float = Field(1.0, ge=0.5, le=2.0)
     response_format: str = "wav"
 
 
@@ -129,7 +129,7 @@ async def synthesize(request: SpeechRequest):
     except Exception as e:
         print(f"  TTS Error: {e}")
         return Response(
-            content=json.dumps({"error": "TTS synthesis failed", "details": str(e)}),
+            content=json.dumps({"error": "TTS synthesis failed"}),
             media_type="application/json",
             status_code=500,
         )

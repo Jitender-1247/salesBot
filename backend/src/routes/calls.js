@@ -2,13 +2,26 @@ import express from 'express';
 import Call from '../models/Call.js';
 import Lead from '../models/Lead.js';
 import { protect } from '../utils/authMiddleware.js';
+import { isObjectId, objectIdParam } from '../utils/validate.js';
 
 const router = express.Router();
+router.param('id', objectIdParam);
+
+// Reject malformed productId filters instead of letting Mongoose throw a CastError
+const badProductId = (productId) => productId !== undefined && !isObjectId(productId);
+
+// CSV cell: escape quotes and neutralise spreadsheet formulas (=, +, -, @) from visitor-supplied text
+const csvCell = (val) => {
+    let s = String(val ?? '');
+    if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+    return `"${s.replace(/"/g, '""')}"`;
+};
 
 // Get all calls with filters
 router.get('/', protect, async (req, res) => {
     try {
         const { language, qualified, productId, startDate, endDate } = req.query;
+        if (badProductId(productId)) return res.status(400).json({ message: 'Invalid productId' });
         let query = { clientId: req.clientId };
 
         if (language) query.language = language;
@@ -18,6 +31,9 @@ router.get('/', protect, async (req, res) => {
             query.createdAt = {};
             if (startDate) query.createdAt.$gte = new Date(startDate);
             if (endDate) query.createdAt.$lte = new Date(endDate);
+            if (Object.values(query.createdAt).some(d => isNaN(d))) {
+                return res.status(400).json({ message: 'Invalid date filter' });
+            }
         }
 
         const calls = await Call.find(query)
@@ -26,7 +42,8 @@ router.get('/', protect, async (req, res) => {
 
         res.json(calls);
     } catch (err) {
-        res.status(500).json({ message: 'Server error', error: err.message });
+        console.error('Calls route error:', err);
+        res.status(500).json({ message: 'Server error' });
     }
 });
 
@@ -34,6 +51,7 @@ router.get('/', protect, async (req, res) => {
 router.get('/analytics', protect, async (req, res) => {
     try {
         const { productId } = req.query;
+        if (badProductId(productId)) return res.status(400).json({ message: 'Invalid productId' });
         const filter = { clientId: req.clientId };
         if (productId) filter.productId = productId;
 
@@ -94,7 +112,8 @@ router.get('/analytics', protect, async (req, res) => {
             satisfaction: satisfactionMap
         });
     } catch (err) {
-        res.status(500).json({ message: 'Server error', error: err.message });
+        console.error('Calls route error:', err);
+        res.status(500).json({ message: 'Server error' });
     }
 });
 
@@ -102,6 +121,7 @@ router.get('/analytics', protect, async (req, res) => {
 router.get('/export', protect, async (req, res) => {
     try {
         const { productId } = req.query;
+        if (badProductId(productId)) return res.status(400).json({ message: 'Invalid productId' });
         const filter = { clientId: req.clientId };
         if (productId) filter.productId = productId;
 
@@ -127,21 +147,23 @@ router.get('/export', protect, async (req, res) => {
 
         const csv = [
             headers.join(','),
-            ...rows.map(row => row.map(val => `"${val}"`).join(','))
+            ...rows.map(row => row.map(csvCell).join(','))
         ].join('\n');
 
         res.setHeader('Content-Type', 'text/csv');
         res.setHeader('Content-Disposition', 'attachment; filename=salesbot-sessions.csv');
         res.send(csv);
     } catch (err) {
-        res.status(500).json({ message: 'Server error', error: err.message });
+        console.error('Calls route error:', err);
+        res.status(500).json({ message: 'Server error' });
     }
 });
 
-// Get single call with transcript
+// Get all leads
 router.get('/leads/all', protect, async (req, res) => {
     try {
         const { productId } = req.query;
+        if (badProductId(productId)) return res.status(400).json({ message: 'Invalid productId' });
         const filter = { clientId: req.clientId };
         if (productId) filter.productId = productId;
 
@@ -150,7 +172,8 @@ router.get('/leads/all', protect, async (req, res) => {
             .sort({ createdAt: -1 });
         res.json(leads);
     } catch (err) {
-        res.status(500).json({ message: 'Server error', error: err.message });
+        console.error('Calls route error:', err);
+        res.status(500).json({ message: 'Server error' });
     }
 });
 
@@ -188,7 +211,8 @@ router.get('/:id', protect, async (req, res) => {
 
         res.json(callObj);
     } catch (err) {
-        res.status(500).json({ message: 'Server error', error: err.message });
+        console.error('Calls route error:', err);
+        res.status(500).json({ message: 'Server error' });
     }
 });
 
