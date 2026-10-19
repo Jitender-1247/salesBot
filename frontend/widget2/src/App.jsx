@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 import ChatView from './components/ChatView';
 
@@ -13,6 +13,9 @@ export default function App() {
     const [screen, setScreen] = useState('landing');
     const [socket, setSocket] = useState(null);
     const [callData, setCallData] = useState(null);
+    // Latest session, readable from socket handlers (which are registered once)
+    const callDataRef = useRef(null);
+    useEffect(() => { callDataRef.current = callData; }, [callData]);
     const [error, setError] = useState('');
     const [userForm, setUserForm] = useState({ name: '', email: '' });
     const [queueInfo, setQueueInfo] = useState(null);
@@ -21,7 +24,21 @@ export default function App() {
         const s = io(SERVER_URL);
         setSocket(s);
 
-        s.on('connect', () => console.log('✅ [Widget2] Socket connected'));
+        s.on('connect', () => {
+            console.log('✅ [Widget2] Socket connected');
+            // After a reconnect the server sees a new socket: reclaim the running session
+            const active = callDataRef.current;
+            if (active?.callId && active.sessionToken) {
+                s.emit('resume-session', { callId: active.callId, sessionToken: active.sessionToken });
+            }
+        });
+
+        s.on('session-resumed', ({ callId }) => console.log(`🔁 [Widget2] Session resumed: ${callId}`));
+
+        s.on('session-expired', () => {
+            callDataRef.current = null;
+            setScreen('end');
+        });
 
         s.on('chat-started', (data) => {
             setCallData(data);
