@@ -81,6 +81,23 @@ export async function checkUrl(urlString) {
     return null;
 }
 
+const siteHost = (hostname) => hostname.toLowerCase().replace(/^www\./, '');
+
+/**
+ * True when `target` belongs to the site of `allowed`: same host ignoring "www.", or a
+ * subdomain of it (app.example.com under example.com). Scheme and port are ignored so
+ * http→https upgrades and www redirects don't block a legitimate demo page.
+ */
+export function sameSite(allowed, target) {
+    try {
+        const a = siteHost(new URL(allowed).hostname);
+        const t = siteHost(new URL(target).hostname);
+        return t === a || t.endsWith(`.${a}`);
+    } catch {
+        return false;
+    }
+}
+
 export function sameOrigin(a, b) {
     try {
         return new URL(a).origin === new URL(b).origin;

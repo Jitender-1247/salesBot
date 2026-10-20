@@ -31,8 +31,19 @@ console.log(`🎙️ STT Provider: ${activePrimary} (with cascading fallbacks)`)
  * @param {string} [language]  - Language hint (default: 'en')
  * @returns {Promise<{text: string, language: string}>}
  */
+/**
+ * Reduce a language hint to an ISO-639 code every provider accepts ("en-US" → "en").
+ * Unknown values become 'auto' so a bad hint never makes a provider reject the audio.
+ */
+function normalizeLanguage(language) {
+    const raw = String(language || '').trim().toLowerCase();
+    if (!raw || raw === 'auto') return raw ? 'auto' : '';
+    const base = raw.replace('_', '-').split('-')[0];
+    return /^[a-z]{2,3}$/.test(base) ? base : 'auto';
+}
+
 export async function transcribeAudio(audioBuffer, language) {
-    const lang = language || STT_LANGUAGE || 'en';
+    const lang = normalizeLanguage(language) || normalizeLanguage(STT_LANGUAGE) || 'en';
     const startMs = Date.now();
 
     // ════════════════════════════════════════════════════

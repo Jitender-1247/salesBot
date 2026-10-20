@@ -7,6 +7,7 @@ import { AgentDispatchClient } from 'livekit-server-sdk';
 import Call from '../models/Call.js';
 import Product from '../models/Product.js';
 import { v4 as uuidv4 } from 'uuid';
+import crypto from 'crypto';
 import {
     pubClient, subClient,
     acquireSessionSlot, releaseSessionSlot,
@@ -16,7 +17,32 @@ import { isObjectId } from '../utils/validate.js';
 import { isPrivateAddress } from '../utils/urlSafety.js';
 
 // A socket may only control the call it started (callIds are not secrets: they appear in logs, URLs, etc.)
-const ownsCall = (socket, callId) => typeof callId === 'string' && socket.activeCallId === callId;
+// After a reconnect the new socket regains ownership via 'resume-session' + the per-call secret token.
+function ownsCall(socket, callId, event) {
+    if (typeof callId === 'string' && socket.activeCallId === callId) return true;
+    console.warn(`🛡️ Ignored '${event}' from socket ${socket.id}: it does not own call ${callId} (active: ${socket.activeCallId || 'none'})`);
+    return false;
+}
+
+// ── Reconnect support ──
+// Socket.IO reconnects (network blips, polling→websocket upgrade failures, laptop sleep) create a
+// NEW socket. Instead of killing the call on disconnect, keep it alive for a grace period so the
+// widget can reclaim it with the secret token it received when the session started.
+const RESUME_GRACE_MS = (parseInt(process.env.SESSION_RESUME_GRACE_SECONDS) || 30) * 1000;
+const sessionTokens = new Map();   // callId -> secret token (only ever sent to the visitor who started it)
+const pendingCleanups = new Map(); // callId -> timeout handle for a disconnected, not-yet-resumed call
+
+function issueSessionToken(callId) {
+    const token = crypto.randomBytes(24).toString('hex');
+    sessionTokens.set(callId, token);
+    return token;
+}
+
+function tokenMatches(callId, token) {
+    const expected = sessionTokens.get(callId);
+    if (!expected || typeof token !== 'string' || token.length !== expected.length) return false;
+    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(token));
+}
 
 const orchestrators = new Map();
 const chatOrchestrators = new Map();
@@ -71,6 +97,40 @@ function checkStartRequest(socket, productId) {
     if (socket.activeCallId) return 'A session is already active on this connection';
     if (!allowSessionStart(clientIp(socket))) return 'Too many sessions started. Please try again in a few minutes.';
     return null;
+}
+
+/** Stop everything a call owns: screenshots, orchestrator (writes the Call record), session slot, token. */
+async function teardownCall(callId, { email = '', name = '', status, reason }) {
+    const pending = pendingCleanups.get(callId);
+    if (pending) {
+        clearTimeout(pending);
+        pendingCleanups.delete(callId);
+    }
+    sessionTokens.delete(callId);
+
+    const interval = screenshotIntervals.get(callId);
+    if (interval) {
+        clearInterval(interval);
+        screenshotIntervals.delete(callId);
+    }
+
+    const demoOrch = orchestrators.get(callId);
+    if (demoOrch) {
+        orchestrators.delete(callId);
+        await demoOrch.end(email, name, status, reason);
+    }
+
+    const chatOrch = chatOrchestrators.get(callId);
+    if (chatOrch) {
+        chatOrchestrators.delete(callId);
+        await chatOrch.end(email, name, status, reason);
+    }
+
+    // Release session slot and promote next queued session
+    const nextCallId = await releaseSessionSlot(callId);
+    if (nextCallId) {
+        console.log(`🔄 Promoting queued session: ${nextCallId}`);
+    }
 }
 
 function startStaleCallSweep() {
@@ -178,6 +238,7 @@ export function initSocket(server) {
                     callId,
                     roomName,
                     visitorToken,
+                    sessionToken: issueSessionToken(callId),
                     livekitUrl: process.env.LIVEKIT_URL
                 });
 
@@ -324,6 +385,7 @@ export function initSocket(server) {
                     callId,
                     roomName,
                     visitorToken,
+                    sessionToken: issueSessionToken(callId),
                     livekitUrl: process.env.LIVEKIT_URL,
                     mode: 'chat',
                     productName: product.name,
@@ -378,7 +440,7 @@ export function initSocket(server) {
 
         // Receive complete audio blob from visitor (VAD-triggered on client)
         socket.on('audio-blob', async ({ callId, audio } = {}) => {
-            if (!ownsCall(socket, callId)) return;
+            if (!ownsCall(socket, callId, 'audio-blob')) return;
             const orchestrator = orchestrators.get(callId) || chatOrchestrators.get(callId);
             if (orchestrator && audio) {
                 const audioBuffer = Buffer.from(audio);
@@ -389,7 +451,7 @@ export function initSocket(server) {
 
         // Receive direct text message from visitor (chat / voice fallback)
         socket.on('user-message', async ({ callId, text } = {}) => {
-            if (!ownsCall(socket, callId)) return;
+            if (!ownsCall(socket, callId, 'user-message')) return;
             const message = cleanText(text, MAX_USER_MESSAGE_CHARS);
             const orchestrator = orchestrators.get(callId) || chatOrchestrators.get(callId);
             if (orchestrator && message) {
@@ -400,7 +462,7 @@ export function initSocket(server) {
 
         // Frontend signals that agent audio finished playing
         socket.on('audio-playback-complete', ({ callId } = {}) => {
-            if (!ownsCall(socket, callId)) return;
+            if (!ownsCall(socket, callId, 'audio-playback-complete')) return;
             const orchestrator = orchestrators.get(callId) || chatOrchestrators.get(callId);
             if (orchestrator) {
                 orchestrator.handleAudioPlaybackComplete();
@@ -409,35 +471,12 @@ export function initSocket(server) {
 
         // Visitor ends the session (widget: end-demo, widget2: end-chat, widget3: end-call)
         const endSession = async ({ callId, prospectEmail, prospectName } = {}) => {
-            if (!ownsCall(socket, callId)) return;
+            if (!ownsCall(socket, callId, 'end-session')) return;
             try {
                 const email = cleanText(prospectEmail, 320);
                 const name = cleanText(prospectName, 200);
 
-                // Stop screenshot interval
-                const interval = screenshotIntervals.get(callId);
-                if (interval) {
-                    clearInterval(interval);
-                    screenshotIntervals.delete(callId);
-                }
-
-                const demoOrch = orchestrators.get(callId);
-                if (demoOrch) {
-                    await demoOrch.end(email, name, 'completed', 'user');
-                    orchestrators.delete(callId);
-                }
-
-                const chatOrch = chatOrchestrators.get(callId);
-                if (chatOrch) {
-                    await chatOrch.end(email, name, 'completed', 'user');
-                    chatOrchestrators.delete(callId);
-                }
-
-                // Release session slot and promote next queued session
-                const nextCallId = await releaseSessionSlot(callId);
-                if (nextCallId) {
-                    console.log(`🔄 Promoting queued session: ${nextCallId}`);
-                }
+                await teardownCall(callId, { email, name, status: 'completed', reason: 'user' });
 
                 socket.activeCallId = null;
                 socket.emit('demo-ended', { callId });
@@ -453,46 +492,50 @@ export function initSocket(server) {
 
         // Triggered by frontend when Keyframe video track attaches
         socket.on('avatar-ready', async ({ callId } = {}) => {
-            if (!ownsCall(socket, callId)) return;
+            if (!ownsCall(socket, callId, 'avatar-ready')) return;
             const orchestrator = orchestrators.get(callId) || chatOrchestrators.get(callId);
             if (orchestrator) {
                 await orchestrator.sendGreeting();
             }
         });
 
-        // Handle disconnect
-        socket.on('disconnect', async () => {
-            console.log(`🔌 Socket disconnected: ${socket.id}`);
+        // Visitor's socket reconnected: reclaim the call it started before the drop
+        socket.on('resume-session', ({ callId, sessionToken } = {}) => {
+            const alive = typeof callId === 'string' && (orchestrators.has(callId) || chatOrchestrators.has(callId));
+            if (!alive || !tokenMatches(callId, sessionToken) || (socket.activeCallId && socket.activeCallId !== callId)) {
+                console.warn(`🛡️ Resume refused for call ${callId} on socket ${socket.id}`);
+                socket.emit('session-expired', { callId });
+                return;
+            }
+            const pending = pendingCleanups.get(callId);
+            if (pending) {
+                clearTimeout(pending);
+                pendingCleanups.delete(callId);
+            }
+            socket.join(callId);
+            socket.activeCallId = callId;
+            socket.emit('session-resumed', { callId });
+            console.log(`🔁 Session resumed: ${callId} on socket ${socket.id}`);
+        });
+
+        // Handle disconnect: give the visitor a grace period to reconnect before tearing the call down
+        socket.on('disconnect', (reason) => {
+            console.log(`🔌 Socket disconnected: ${socket.id} (${reason})`);
 
             const callId = socket.activeCallId;
-            if (!callId) return;
+            if (!callId || pendingCleanups.has(callId)) return;
+            if (!orchestrators.has(callId) && !chatOrchestrators.has(callId)) return;
 
-            try {
-                const interval = screenshotIntervals.get(callId);
-                if (interval) {
-                    clearInterval(interval);
-                    screenshotIntervals.delete(callId);
+            console.log(`⏳ [${callId}] Visitor disconnected — holding session ${RESUME_GRACE_MS / 1000}s for reconnect`);
+            pendingCleanups.set(callId, setTimeout(async () => {
+                pendingCleanups.delete(callId);
+                try {
+                    await teardownCall(callId, { status: 'failed', reason: 'disconnect' });
+                    console.log(`⚠️ Call ${callId} marked failed (visitor did not reconnect)`);
+                } catch (err) {
+                    console.log('❌ Error cleaning up disconnected call:', err.message);
                 }
-
-                const demoOrch = orchestrators.get(callId);
-                if (demoOrch) {
-                    await demoOrch.end('', '', 'failed', 'disconnect');
-                    orchestrators.delete(callId);
-                    console.log(`⚠️ Demo call ${callId} marked failed (visitor disconnected)`);
-                }
-
-                const chatOrch = chatOrchestrators.get(callId);
-                if (chatOrch) {
-                    await chatOrch.end('', '', 'failed', 'disconnect');
-                    chatOrchestrators.delete(callId);
-                    console.log(`⚠️ Chat call ${callId} marked failed (visitor disconnected)`);
-                }
-
-                // Release session slot
-                await releaseSessionSlot(callId);
-            } catch (err) {
-                console.log('❌ Error cleaning up disconnected call:', err.message);
-            }
+            }, RESUME_GRACE_MS));
         });
     });
 

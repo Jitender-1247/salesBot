@@ -125,7 +125,11 @@ export class CallOrchestrator {
             this.startTime = Date.now();
 
             // Launch browser and login (uses stored cookies if available to bypass form login)
-            this.navigator.setAllowedUrls([this.product.url, this.product.demoStartUrl]);
+            this.navigator.setAllowedUrls([
+                this.product.url,
+                this.product.demoStartUrl,
+                ...(this.product.knowledgeMap?.pages || []).map(p => p.url),
+            ]);
             await this.navigator.launch();
             const _email = this.product.credentials?.email ? decrypt(this.product.credentials.email) : '';
             const _password = this.product.credentials?.password ? decrypt(this.product.credentials.password) : '';
@@ -359,7 +363,15 @@ export class CallOrchestrator {
                         }
                         this.lastActionKey = actionKey;
 
-                        await this.navigator.executeAction(toolName, toolArgs);
+                        const result = await this.navigator.executeAction(toolName, toolArgs);
+                        if (result?.ok === false) {
+                            // Tell the LLM the browser did NOT move, so its next turn matches the screen
+                            this.conversationHistory.push({
+                                role: 'system',
+                                content: `[System: Your last action (${toolName}) did not happen: ${result.error}. The browser is still on ${this.navigator.getCurrentUrl()}. Only use page URLs from the knowledge map.]`
+                            });
+                            continue;
+                        }
                         this.io.to(this.callId).emit('navigation-event', {
                             tool: toolName,
                             args: toolArgs

@@ -136,6 +136,54 @@ function stripThinkBlocks(text) {
     return text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 }
 
+// ── Knowledge-map page matching ──
+// LLMs rarely reproduce URLs byte-for-byte (www, trailing slash, relative path, page name),
+// so compare pages by host-without-www + path instead of exact string equality.
+function urlKey(url, base) {
+    try {
+        const u = new URL(url, base);
+        return u.hostname.toLowerCase().replace(/^www\./, '') + (u.pathname.replace(/\/+$/, '') || '/');
+    } catch {
+        return null;
+    }
+}
+
+const cleanNavTarget = (raw) => String(raw || '').trim()
+    .replace(/^[\s'"`<(\[]+/, '')
+    .replace(/[\s'"`>)\].,;!?]+$/, '');
+
+/** Map what the LLM wrote in [NAVIGATE: …] to a known page (by URL, path or page name). */
+function matchKnownPage(raw, pages, currentUrl) {
+    const target = cleanNavTarget(raw);
+    if (!target) return null;
+    const exact = pages.find(p => p.url === target);
+    if (exact) return exact;
+    const key = urlKey(target, currentUrl || pages[0]?.url);
+    const byPath = key && pages.find(p => urlKey(p.url) === key);
+    if (byPath) return byPath;
+    const name = target.toLowerCase();
+    return pages.find(p => p.name && p.name.toLowerCase() === name) || null;
+}
+
+/** The knowledge-map page the browser is on: exact path match, else the deepest parent path. */
+function findCurrentPage(pages, currentUrl) {
+    const current = urlKey(currentUrl);
+    if (!current) return null;
+    let best = null;
+    let bestLength = -1;
+    for (const page of pages) {
+        const key = urlKey(page.url);
+        if (!key) continue;
+        if (key === current) return page;
+        const isParent = key.endsWith('/') ? current.startsWith(key) : current.startsWith(`${key}/`);
+        if (isParent && key.length > bestLength) {
+            best = page;
+            bestLength = key.length;
+        }
+    }
+    return best;
+}
+
 /**
  * Build a structured system prompt with numbered element list.
  * This gives the LLM precise targets for clicking — like a real browser agent.
@@ -184,7 +232,7 @@ function buildSystemPrompt(language, knowledgeMap, productName, pageContext) {
         currentPageSection = `\n═══ CURRENT PAGE STATE ═══\nURL: ${pageContext.url}\nTitle: ${pageContext.title}\nHeadings: ${pageContext.headings?.join(', ') || 'none'}`;
 
         // Match current page to knowledge map for contextual talking points
-        const currentPageKnowledge = pages.find(p => pageContext.url.includes(new URL(p.url).pathname));
+        const currentPageKnowledge = findCurrentPage(pages, pageContext.url);
         if (currentPageKnowledge) {
             if (currentPageKnowledge.talkingPoints?.length) {
                 currentPageSection += `\n\n💬 TALKING POINTS FOR THIS PAGE:`;
@@ -371,13 +419,18 @@ export async function think(transcript, language, knowledgeMap, conversationHist
         const navRegex = /\[NAVIGATE:\s*(.+?)\]/gi;
         let match;
         while ((match = navRegex.exec(content)) !== null) {
-            const url = match[1].trim();
+            const raw = match[1].trim();
+            // Snap to the real knowledge-map URL so small LLM typos still land on the right page
+            const page = matchKnownPage(raw, knowledgeMap.pages || [], pageContext?.url);
+            const url = page ? page.url : cleanNavTarget(raw);
+            if (page && page.url !== raw) {
+                console.log(`🎯 Resolved [NAVIGATE: ${raw}] → ${page.name} (${page.url})`);
+            }
             // Skip if the URL is the same as the current page
-            if (pageContext && pageContext.url === url) {
+            if (pageContext && urlKey(pageContext.url) === urlKey(url, pageContext.url)) {
                 console.log(`⚠️ Skipping duplicate navigation to current page: ${url}`);
                 continue;
             }
-            const page = knowledgeMap.pages.find(p => p.url === url);
             toolCalls.push({
                 function: {
                     name: 'navigate_to',

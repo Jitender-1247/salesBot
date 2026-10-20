@@ -21,6 +21,9 @@ export default function App() {
     const [screen, setScreen] = useState('landing');
     const [socket, setSocket] = useState(null);
     const [callData, setCallData] = useState(null);
+    // Latest session, readable from socket handlers (which are registered once)
+    const callDataRef = useRef(null);
+    useEffect(() => { callDataRef.current = callData; }, [callData]);
     const [errorMessage, setErrorMessage] = useState('');
     const [userForm, setUserForm] = useState({ name: '', email: '' });
     const [queueInfo, setQueueInfo] = useState(null);
@@ -33,7 +36,19 @@ export default function App() {
         setSocket(s);
 
         s.on('connect', () => {
-            console.log('✅ [Widget3] Connected to SalesBot backend');
+            console.log('✅ [Widget3] Socket connected');
+            // After a reconnect the server sees a new socket: reclaim the running session
+            const active = callDataRef.current;
+            if (active?.callId && active.sessionToken) {
+                s.emit('resume-session', { callId: active.callId, sessionToken: active.sessionToken });
+            }
+        });
+
+        s.on('session-resumed', ({ callId }) => console.log(`🔁 [Widget3] Session resumed: ${callId}`));
+
+        s.on('session-expired', () => {
+            callDataRef.current = null;
+            setScreen('end');
         });
 
         s.on('chat-started', (data) => {

@@ -49,8 +49,10 @@ async def transcribe(
     response_format: str = Form("json"),
 ):
     """OpenAI-compatible transcription endpoint."""
-    if language != "auto" and not (language.isalpha() and 2 <= len(language) <= 3):
-        raise HTTPException(status_code=400, detail="Invalid language code")
+    # Accept "en", "en-US", "en_GB"; anything else (e.g. "english", "") falls back to auto-detect
+    # instead of failing the request, so a bad hint never costs the visitor their utterance.
+    base_lang = (language or "").strip().lower().replace("_", "-").split("-")[0]
+    whisper_lang = base_lang if base_lang.isalpha() and 2 <= len(base_lang) <= 3 else None
 
     # Only keep a short alphanumeric extension from the client-supplied filename
     ext = os.path.splitext(file.filename or "")[1].lower()
@@ -73,7 +75,7 @@ async def transcribe(
         def _transcribe():
             segs, inf = whisper_model.transcribe(
                 tmp_path,
-                language=language if language != "auto" else None,
+                language=whisper_lang,
                 beam_size=1,       # Fast greedy decoding (5x faster than beam_size=5 on CPU)
                 best_of=1,
                 temperature=0.0,

@@ -1,7 +1,7 @@
 import { chromium } from 'playwright';
 import { Room, RoomEvent, LocalVideoTrack, VideoSource } from '@livekit/rtc-node';
 import dotenv from 'dotenv';
-import { checkUrl, sameOrigin, guardBrowserContext } from '../../utils/urlSafety.js';
+import { checkUrl, sameSite, guardBrowserContext } from '../../utils/urlSafety.js';
 dotenv.config();
 
 export class Navigator {
@@ -12,7 +12,7 @@ export class Navigator {
         this.room = null;
         this.screencastStopper = null;
         this.isRemoteBrowser = false; // Track if using remote browser grid
-        this.allowedOrigins = []; // Origins the LLM may navigate to (set from the product URL)
+        this.allowedSites = []; // Sites the LLM may navigate to (product URL, demo start URL, knowledge-map pages)
     }
 
     /**
@@ -20,10 +20,51 @@ export class Navigator {
      * LLM, so without this a visitor could make the demo browser open arbitrary sites.
      */
     setAllowedUrls(urls) {
-        this.allowedOrigins = urls
-            .filter(Boolean)
-            .map(u => { try { return new URL(u).origin; } catch { return null; } })
-            .filter(Boolean);
+        this.allowedSites = [];
+        urls.forEach(u => this.addAllowedUrl(u));
+    }
+
+    addAllowedUrl(url) {
+        if (!url) return;
+        try {
+            const { protocol, origin } = new URL(url);
+            if ((protocol === 'http:' || protocol === 'https:') && !this.allowedSites.includes(origin)) {
+                this.allowedSites.push(origin);
+            }
+        } catch { /* ignore malformed URLs */ }
+    }
+
+    isAllowedTarget(url) {
+        return this.allowedSites.some(site => sameSite(site, url));
+    }
+
+    /**
+     * Turn whatever the LLM wrote into an absolute URL: strips quotes/brackets/trailing
+     * punctuation, adds a scheme to bare hosts ("example.com/pricing") and resolves
+     * relative paths ("/pricing") against the page the browser is currently on.
+     */
+    resolveTarget(raw) {
+        let s = String(raw || '').trim()
+            .replace(/^[\s'"`<(\[]+/, '')
+            .replace(/[\s'"`>)\].,;!?]+$/, '');
+        if (!s) return null;
+
+        const firstSegment = s.split('/')[0].toLowerCase().replace(/^www\./, '');
+        const isBareHost = !/^[a-z][a-z0-9+.-]*:/i.test(s) && !s.startsWith('/') &&
+            this.allowedSites.some(site => sameSite(site, `https://${firstSegment}`));
+        if (isBareHost) s = `https://${s}`;
+
+        let base = this.allowedSites[0];
+        try {
+            const current = this.page?.url();
+            if (current && /^https?:/i.test(current)) base = current;
+        } catch { /* page closed */ }
+
+        try {
+            return new URL(s, base).href;
+        } catch {
+            return null;
+        }
     }
 
     async launch() {
@@ -430,19 +471,21 @@ export class Navigator {
         try {
             switch (toolName) {
                 case 'navigate_to': {
-                    const target = String(toolArgs.url || '');
-                    const unsafe = await checkUrl(target);
-                    const inProduct = this.allowedOrigins.some(origin => sameOrigin(origin, target));
-                    if (unsafe || !inProduct) {
-                        console.warn(`🛡️ Refused navigation to ${target}: ${unsafe || 'outside the product site'}`);
-                        break;
+                    const target = this.resolveTarget(toolArgs.url);
+                    const unsafe = target ? await checkUrl(target) : 'Invalid URL';
+                    if (unsafe || !this.isAllowedTarget(target)) {
+                        const reason = unsafe || 'outside the product site';
+                        console.warn(`🛡️ Refused navigation to ${toolArgs.url}: ${reason}`);
+                        return { ok: false, error: `Navigation to ${toolArgs.url} refused (${reason})` };
                     }
-                    console.log(`🔗 Navigating to: ${toolArgs.pageName}`);
+                    console.log(`🔗 Navigating to: ${toolArgs.pageName} (${target})`);
                     await this.page.goto(target, {
                         waitUntil: 'domcontentloaded',
                         timeout: 15000
                     });
-                    break;
+                    // Let client-side apps render before the next screenshot / page-context read
+                    await this.page.waitForLoadState('networkidle', { timeout: 3000 }).catch(() => {});
+                    return { ok: true, url: this.page.url() };
                 }
 
                 case 'click_element': {
@@ -595,9 +638,12 @@ export class Navigator {
 
                 default:
                     console.log(`⚠️ Unknown tool: ${toolName}`);
+                    return { ok: false, error: `Unknown tool ${toolName}` };
             }
+            return { ok: true };
         } catch (err) {
             console.log(`❌ Action failed (${toolName}):`, err.message);
+            return { ok: false, error: err.message };
         }
     }
 
