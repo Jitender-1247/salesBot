@@ -1,6 +1,8 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY;
+
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
 const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || 'EXAVITQu4vr4xnSDxMaL'; // "Bella" — natural female voice
 
@@ -32,14 +34,45 @@ function splitIntoSentences(text) {
 
 /**
  * Generate TTS audio for a single text chunk.
- * Priority: ElevenLabs → OpenAI TTS → Local TTS server
+ * Priority: Deepgram Aura → ElevenLabs → OpenAI TTS → Local TTS server
  *
  * @param {string} text
  * @param {AbortSignal} [signal]
  * @returns {Promise<Buffer>}
  */
 async function speakChunk(text, signal) {
-    // ── 1. ElevenLabs (Primary if configured) ──
+    // ── 1. Deepgram Aura TTS (Primary — works from EC2, uses existing DEEPGRAM_API_KEY) ──
+    if (DEEPGRAM_API_KEY) {
+        try {
+            const response = await fetch(
+                'https://api.deepgram.com/v1/speak?model=aura-2-thalia-en&encoding=mp3',
+                {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Token ${DEEPGRAM_API_KEY}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ text }),
+                    signal,
+                }
+            );
+
+            if (response.ok) {
+                const arrayBuffer = await response.arrayBuffer();
+                const buf = Buffer.from(arrayBuffer);
+                if (buf.length > 0) return buf;
+                console.warn('⚠️ Deepgram TTS returned empty audio — falling back');
+            } else {
+                const err = await response.text();
+                console.warn(`⚠️ Deepgram TTS ${response.status}: ${err.slice(0, 100)} — falling back`);
+            }
+        } catch (err) {
+            if (err.name === 'AbortError') throw err;
+            console.warn(`⚠️ Deepgram TTS error: ${err.message} — falling back`);
+        }
+    }
+
+    // ── 2. ElevenLabs (Secondary if configured) ──
     if (ELEVENLABS_API_KEY && !ELEVENLABS_API_KEY.includes('your-eleven')) {
         try {
             const response = await fetch(
@@ -53,7 +86,7 @@ async function speakChunk(text, signal) {
                     },
                     body: JSON.stringify({
                         text,
-                        model_id: 'eleven_turbo_v2_5', // Fastest, lowest latency
+                        model_id: 'eleven_turbo_v2_5',
                         voice_settings: {
                             stability: 0.5,
                             similarity_boost: 0.75,
@@ -79,7 +112,7 @@ async function speakChunk(text, signal) {
         }
     }
 
-    // ── 2. OpenAI TTS (Secondary) ──
+    // ── 3. OpenAI TTS (Tertiary) ──
     if (OPENAI_API_KEY && !OPENAI_API_KEY.includes('your-openai')) {
         try {
             const response = await fetch('https://api.openai.com/v1/audio/speech', {
@@ -91,7 +124,7 @@ async function speakChunk(text, signal) {
                 body: JSON.stringify({
                     model: 'tts-1',
                     input: text,
-                    voice: 'nova', // Most natural female voice
+                    voice: 'nova',
                     speed: 1.0,
                     response_format: 'mp3',
                 }),
@@ -110,7 +143,7 @@ async function speakChunk(text, signal) {
         }
     }
 
-    // ── 3. Local TTS server (Always reliable Edge-TTS) ──
+    // ── 4. Local TTS server (Edge-TTS — works locally, may be blocked on EC2) ──
     const response = await fetch(`${TTS_BASE_URL}/v1/audio/speech`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
