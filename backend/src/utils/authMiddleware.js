@@ -3,6 +3,16 @@ import { isObjectId } from './validate.js';
 
 export const JWT_ALGORITHM = 'HS256';
 
+/** Verify a dashboard JWT; returns the clientId or null. Shared by HTTP routes and the Live Console socket. */
+export const verifyClientToken = (token) => {
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: [JWT_ALGORITHM] });
+        return isObjectId(decoded?.clientId) ? decoded.clientId : null;
+    } catch {
+        return null;
+    }
+};
+
 export const protect = (req, res, next) => {
     try {
         const [scheme, token] = (req.headers.authorization || '').split(' ');

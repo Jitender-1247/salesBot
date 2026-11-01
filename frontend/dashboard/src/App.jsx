@@ -10,6 +10,7 @@ import ProductDetail from './pages/ProductDetail';
 import CallDetail from './pages/CallDetail';
 import Embed from './pages/Embed';
 import TestUI from './pages/TestUI';
+import LiveConsole from './pages/LiveConsole';
 import { ThemeProvider } from './context/ThemeContext';
 
 const PrivateRoute = ({ children }) => {
@@ -33,6 +34,7 @@ export default function App() {
         <Route path="/products/:id" element={<PrivateRoute><ProductDetail /></PrivateRoute>} />
         <Route path="/calls/:id" element={<PrivateRoute><CallDetail /></PrivateRoute>} />
         <Route path="/embed/:id" element={<PrivateRoute><Embed /></PrivateRoute>} />
+        <Route path="/live" element={<PrivateRoute><LiveConsole /></PrivateRoute>} />
       </Routes>
     </BrowserRouter>
   </ThemeProvider>

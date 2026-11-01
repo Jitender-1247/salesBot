@@ -542,7 +542,9 @@ export class CallOrchestrator {
                 satisfaction,
                 satisfactionReason,
                 qualified,
-                qualificationReason
+                qualificationReason,
+                leadScore,
+                leadScoreReason
             } = await analyzeCallOutcome(this.transcript);
 
             const update = {
@@ -556,7 +558,9 @@ export class CallOrchestrator {
                 satisfaction,
                 satisfactionReason,
                 qualified,
-                qualificationReason
+                qualificationReason,
+                leadScore,
+                leadScoreReason
             };
             if (prospectEmail) update.prospectEmail = prospectEmail;
             if (prospectName) update.prospectName = prospectName;

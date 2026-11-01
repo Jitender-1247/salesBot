@@ -1,7 +1,9 @@
 import { useRef, useEffect, useState, useMemo } from 'react';
 import {
     LiveKitRoom,
+    RoomAudioRenderer,
     useTracks,
+    useLocalParticipant,
 } from '@livekit/components-react';
 import { Track } from 'livekit-client';
 import '@livekit/components-styles';
@@ -9,7 +11,42 @@ import '@livekit/components-styles';
 const DEFAULT_AVATAR_IMG = '/widget3/alex-avatar.png';
 const FALLBACK_AVATAR_IMG = '/alex-avatar.png';
 
-function LiveTrackPlayer({ speaking, onReady, avatarImg = DEFAULT_AVATAR_IMG }) {
+// Human specialists join the room as "human-<socketId>" (see ChatOrchestrator.humanAccept)
+const isHuman = (participant) => participant?.identity?.startsWith('human-');
+
+function AvatarPlaceholder({ speaking, avatarImg, agentName }) {
+    return (
+        <div className={`avatar-photorealistic-stage ${speaking ? 'speaking' : ''}`}>
+            <div className="avatar-ambient-glow" />
+            <div className={`avatar-speaking-ring ring-1 ${speaking ? 'active' : ''}`} />
+            <div className={`avatar-speaking-ring ring-2 ${speaking ? 'active' : ''}`} />
+            <div className={`avatar-speaking-ring ring-3 ${speaking ? 'active' : ''}`} />
+
+            <div className="avatar-frame-circle">
+                <img
+                    src={avatarImg}
+                    alt={agentName}
+                    className="avatar-img"
+                    onError={(e) => { e.target.src = FALLBACK_AVATAR_IMG; }}
+                />
+            </div>
+        </div>
+    );
+}
+
+/** Publishes the visitor's microphone only while a human specialist is on the call. */
+function MicController({ enabled }) {
+    const { localParticipant } = useLocalParticipant();
+    useEffect(() => {
+        if (!localParticipant) return;
+        localParticipant.setMicrophoneEnabled(enabled).catch(err => {
+            console.warn('[VideoAvatar] Microphone:', err?.message || err);
+        });
+    }, [localParticipant, enabled]);
+    return null;
+}
+
+function LiveTrackPlayer({ speaking, onReady, avatarImg, agentName, humanName }) {
     const videoRef = useRef(null);
     const readyReported = useRef(false);
     const [hasVideoTrack, setHasVideoTrack] = useState(false);
@@ -23,7 +60,10 @@ function LiveTrackPlayer({ speaking, onReady, avatarImg = DEFAULT_AVATAR_IMG }) 
         { onlySubscribed: false }
     );
 
-    const remoteTrack = tracks.find(t => !t.participant.isLocal && t.publication?.track);
+    // A specialist's camera takes the stage; otherwise the AI avatar's video
+    const remoteTracks = tracks.filter(t => !t.participant.isLocal && t.publication?.track);
+    const remoteTrack = remoteTracks.find(t => isHuman(t.participant)) || remoteTracks.find(t => !isHuman(t.participant));
+    const showingHuman = isHuman(remoteTrack?.participant);
 
     useEffect(() => {
         const timeout = setTimeout(() => {
@@ -38,7 +78,8 @@ function LiveTrackPlayer({ speaking, onReady, avatarImg = DEFAULT_AVATAR_IMG }) 
     useEffect(() => {
         if (!remoteTrack?.publication?.track || !videoRef.current) return;
         const track = remoteTrack.publication.track;
-        track.attach(videoRef.current);
+        const el = videoRef.current;
+        track.attach(el);
         setHasVideoTrack(true);
 
         if (onReady && !readyReported.current) {
@@ -47,10 +88,10 @@ function LiveTrackPlayer({ speaking, onReady, avatarImg = DEFAULT_AVATAR_IMG }) 
         }
 
         return () => {
-            track.detach(videoRef.current);
+            track.detach(el);
             setHasVideoTrack(false);
         };
-    }, [remoteTrack, onReady]);
+    }, [remoteTrack?.publication?.track, onReady]);
 
     return (
         <div className="avatar-stage-viewport">
@@ -58,26 +99,17 @@ function LiveTrackPlayer({ speaking, onReady, avatarImg = DEFAULT_AVATAR_IMG }) 
                 ref={videoRef}
                 autoPlay
                 playsInline
+                muted
                 className="avatar-live-video"
                 style={{ display: hasVideoTrack ? 'block' : 'none' }}
             />
 
+            {showingHuman && humanName && (
+                <div className="human-name-tag">🧑‍💼 {humanName}</div>
+            )}
+
             {!hasVideoTrack && (
-                <div className={`avatar-photorealistic-stage ${speaking ? 'speaking' : ''}`}>
-                    <div className="avatar-ambient-glow" />
-                    <div className={`avatar-speaking-ring ring-1 ${speaking ? 'active' : ''}`} />
-                    <div className={`avatar-speaking-ring ring-2 ${speaking ? 'active' : ''}`} />
-                    <div className={`avatar-speaking-ring ring-3 ${speaking ? 'active' : ''}`} />
-                    
-                    <div className="avatar-frame-circle">
-                        <img
-                            src={avatarImg}
-                            alt="Sofia"
-                            className="avatar-img"
-                            onError={(e) => { e.target.src = FALLBACK_AVATAR_IMG; }}
-                        />
-                    </div>
-                </div>
+                <AvatarPlaceholder speaking={speaking} avatarImg={avatarImg} agentName={agentName} />
             )}
         </div>
     );
@@ -88,7 +120,10 @@ export default function VideoAvatar({
     token,
     speaking = false,
     onReady,
-    avatarImg = DEFAULT_AVATAR_IMG
+    avatarImg = DEFAULT_AVATAR_IMG,
+    agentName = 'Sofia',
+    humanName = '',
+    micEnabled = false
 }) {
     const roomOptions = useMemo(() => ({
         adaptiveStream: false,
@@ -107,19 +142,7 @@ export default function VideoAvatar({
     if (!livekitUrl || !token) {
         return (
             <div className="avatar-stage-viewport">
-                <div className={`avatar-photorealistic-stage ${speaking ? 'speaking' : ''}`}>
-                    <div className="avatar-ambient-glow" />
-                    <div className={`avatar-speaking-ring ring-1 ${speaking ? 'active' : ''}`} />
-                    <div className={`avatar-speaking-ring ring-2 ${speaking ? 'active' : ''}`} />
-                    <div className="avatar-frame-circle">
-                        <img
-                            src={avatarImg}
-                            alt="Sofia"
-                            className="avatar-img"
-                            onError={(e) => { e.target.src = FALLBACK_AVATAR_IMG; }}
-                        />
-                    </div>
-                </div>
+                <AvatarPlaceholder speaking={speaking} avatarImg={avatarImg} agentName={agentName} />
             </div>
         );
     }
@@ -141,10 +164,15 @@ export default function VideoAvatar({
             }}
             style={{ display: 'contents' }}
         >
+            {/* Plays the avatar's lip-synced voice and, after a handover, the specialist */}
+            <RoomAudioRenderer />
+            <MicController enabled={micEnabled} />
             <LiveTrackPlayer
                 speaking={speaking}
                 onReady={onReady}
                 avatarImg={avatarImg}
+                agentName={agentName}
+                humanName={humanName}
             />
         </LiveKitRoom>
     );

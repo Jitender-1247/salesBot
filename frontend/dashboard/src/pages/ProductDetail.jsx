@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import BackButton from '../components/BackButton';
+import AgentSettings from '../components/AgentSettings';
 import api from '../api';
 
 export default function ProductDetail() {
@@ -224,6 +225,13 @@ export default function ProductDetail() {
                         </div>
                     )}
                 </div>
+
+                {/* Persona, catalog, nudges, handover */}
+                <AgentSettings
+                    key={product._id}
+                    product={product}
+                    onSaved={(saved) => setProduct(prev => ({ ...prev, ...saved }))}
+                />
 
                 {/* Session Import */}
                 <div className="ultra-card p-6 space-y-4">

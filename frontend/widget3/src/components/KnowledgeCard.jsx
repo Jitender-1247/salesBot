@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function KnowledgeCard({ card, onDismiss, onAction }) {
+export default function KnowledgeCard({ card, onDismiss, onAction, agentName = 'Sofia' }) {
     if (!card) return null;
 
     return (
@@ -53,7 +53,7 @@ export default function KnowledgeCard({ card, onDismiss, onAction }) {
                             className="card-cta-btn secondary"
                             onClick={() => onAction?.({ ...card, askMore: true })}
                         >
-                            Ask Sofia About This
+                            Ask {agentName} About This
                         </button>
                     </div>
                 </div>

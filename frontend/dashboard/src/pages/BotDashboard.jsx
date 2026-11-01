@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import BackButton from '../components/BackButton';
+import LeadScorePill from '../components/LeadScorePill';
 import api from '../api';
 
 const BOT_INFO = {
@@ -444,6 +445,8 @@ export default function BotDashboard() {
                                     </div>
 
                                     <div className="flex items-center gap-3">
+                                        <LeadScorePill score={call.leadScore} reason={call.leadScoreReason} />
+                                        {call.handover?.outcome === 'accepted' && <span className="status-pill status-pill-green" title={`Handled by ${call.handover.agentName}`}>🧑‍💼 Human</span>}
                                         {call.qualified && <span className="status-pill status-pill-green">✅ Qualified</span>}
                                         {call.satisfaction && call.satisfaction !== 'unknown' && (
                                             <span className="text-sm" title={call.satisfactionReason || ''}>
@@ -492,6 +495,7 @@ export default function BotDashboard() {
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-3">
+                                        <LeadScorePill score={lead.leadScore} />
                                         <span className="status-pill status-pill-purple">{lead.status || 'Not Contacted'}</span>
                                         <span className={`status-pill ${lead.zohoSyncStatus === 'synced' ? 'status-pill-green' : lead.zohoSyncStatus === 'failed' ? 'status-pill-red' : 'status-pill-yellow'}`}
                                             title={lead.zohoSyncError || ''}>

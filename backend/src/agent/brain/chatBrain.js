@@ -60,15 +60,28 @@ function stripThinkBlocks(text) {
     return text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 }
 
+const MAX_CATALOG_IN_PROMPT = 60;
+
+function formatCatalog(catalog = []) {
+    return catalog.slice(0, MAX_CATALOG_IN_PROMPT).map(item => {
+        const price = item.price !== null && item.price !== undefined ? ` | ${item.currency || ''} ${item.price}` : '';
+        const tags = item.tags?.length ? ` | tags: ${item.tags.join(', ')}` : '';
+        const desc = item.description ? ` — ${item.description.slice(0, 160)}` : '';
+        return `- [${item.sku}] ${item.name}${price}${tags}${desc}`;
+    }).join('\n');
+}
+
 /**
  * Build system prompt for 1-on-1 Avatar Chat.
- * Sofia acts as a dedicated AI consultant with complete product knowledge.
- * No browser navigation or interaction commands.
+ * The persona (name, role, tone, goals) comes from the product's settings.
+ * No browser navigation; the only actions are product cards and human handover.
  */
-export function buildChatSystemPrompt(language, knowledgeMap, productName) {
+export function buildChatSystemPrompt(language, knowledgeMap, productName, { persona, catalog = [], handoverAvailable = false } = {}) {
     const lang = language || 'en';
     const langName = languageNames[lang] || 'English';
-    const persona = culturalPersona[lang] || culturalPersona.en;
+    const culture = culturalPersona[lang] || culturalPersona.en;
+    const agentName = persona?.name || 'Sofia';
+    const agentRole = persona?.role || 'AI product specialist';
 
     const pages = knowledgeMap?.pages || [];
     const featureSummary = pages
@@ -95,19 +108,36 @@ export function buildChatSystemPrompt(language, knowledgeMap, productName) {
             .join('\n');
     }
 
-    return `You are Sofia, an expert 1-on-1 AI product specialist and sales consultant for ${productName}.
+    const catalogSection = catalog.length
+        ? `\n═══ PRODUCT CATALOG (you can show these as cards) ═══\n${formatCatalog(catalog)}\n`
+        : '';
+
+    const actionRules = [];
+    if (catalog.length) {
+        actionRules.push('- When recommending a specific catalog item, append [SHOW_PRODUCT: SKU] at the very end of your reply (max 2 per reply, exact SKUs from the catalog only). The visitor sees a product card with a buy/view button. Never read the SKU or the tag aloud.');
+    }
+    if (handoverAvailable) {
+        actionRules.push('- If the visitor asks for a human, a real person, a specialist or a sales rep, or needs something you cannot do (custom quote, order issue, negotiation), say you will connect them and append [HANDOVER] at the very end of your reply.');
+    } else {
+        actionRules.push('- If the visitor asks for a human, explain that the team is not online right now and offer to note their details for a follow-up.');
+    }
+
+    return `You are ${agentName}, ${agentRole} for ${productName}.
 You are having an engaging, friendly, one-on-one conversation with a prospective customer via your video avatar.
 
 ═══ MISSION & ROLE ═══
-- You are Sofia: articulate, warm, confident, consultative, and deeply knowledgeable about ${productName}.
+- You are ${agentName}: articulate, warm, confident, consultative, and deeply knowledgeable about ${productName}.
 - In this 1-on-1 avatar chat mode, you communicate ONLY through speech and text. You do NOT have a browser screen or navigation controls.
 - Your goal is to answer questions thoroughly, solve customer pain points, highlight core benefits, qualify the prospect, and help them make a confident purchase decision.
 - Speak directly, naturally, and personably as if talking to a prospect over a live 1-on-1 video call.
 
 LANGUAGE & PERSONA:
 - Primary Language: Respond in ${langName}.
-- Persona: ${persona}.
-- Natural, conversational, and helpful.
+- Cultural style: ${culture}.
+- Brand tone: ${persona?.tone || 'Natural, conversational, and helpful.'}
+
+SALES GOALS:
+${persona?.goals || 'Answer questions, qualify interest, and guide the visitor to the next step.'}
 
 ═══ STORED PRODUCT KNOWLEDGE ═══
 PRODUCT SUMMARY:
@@ -116,22 +146,44 @@ ${extraKnowledgeSection}
 FEATURES & CAPABILITIES:
 ${featureSummary || 'No specific page details provided.'}
 ${demoFlowSection}
-
+${catalogSection}
 ═══ CONVERSATION RULES ═══
 1. Keep each spoken turn CONCISE (1 to 3 sentences). Overly long paragraphs feel unnatural over voice.
 2. Directly answer the user's specific inquiry first using the stored knowledge, then offer value or insight.
 3. If asked about pricing, features, integrations, or use cases, draw directly from the stored knowledge above.
 4. If a question is not covered in your knowledge base, be honest and offer to connect them with a human specialist or record their details.
 5. Always end your response with an open, engaging follow-up question to keep the dialogue natural and friendly (e.g. "Does that match what you're trying to build?", "Would you like me to dive deeper into any of those features?").
-6. NEVER output any action tags like [NAVIGATE], [CLICK], [TYPE], [SCROLL], or [WAIT]. Output ONLY clean, natural speech.
+6. NEVER output browser tags like [NAVIGATE], [CLICK], [TYPE], [SCROLL], or [WAIT].
+
+═══ ACTIONS ═══
+${actionRules.join('\n')}
 /no_think`.trim();
 }
 
+/** Pull [SHOW_PRODUCT: x] / [HANDOVER] actions out of the reply, leaving clean speech. */
+export function extractActions(text, catalog = []) {
+    const skus = new Set(catalog.map(c => c.sku));
+    const showProducts = [];
+    let handover = false;
+
+    const speech = text
+        .replace(/\[SHOW_PRODUCT:\s*([^\]]+?)\s*\]/gi, (_, sku) => {
+            if (skus.has(sku) && !showProducts.includes(sku) && showProducts.length < 2) showProducts.push(sku);
+            return '';
+        })
+        .replace(/\[HANDOVER\]/gi, () => { handover = true; return ''; })
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+
+    return { speech, showProducts, handover };
+}
+
 /**
- * Execute 1-on-1 conversational thinking for Sofia Avatar Chat.
+ * Execute 1-on-1 conversational thinking for the avatar chat.
+ * Returns { content, showProducts: [sku], handover: boolean }.
  */
-export async function thinkChat(transcript, language, knowledgeMap, conversationHistory, productName) {
-    const systemPrompt = buildChatSystemPrompt(language, knowledgeMap, productName);
+export async function thinkChat(transcript, language, knowledgeMap, conversationHistory, productName, options = {}) {
+    const systemPrompt = buildChatSystemPrompt(language, knowledgeMap, productName, options);
 
     const messages = [
         { role: 'system', content: systemPrompt },
@@ -212,16 +264,21 @@ export async function thinkChat(transcript, language, knowledgeMap, conversation
             .replace(/\[WAIT\]/gi, '')
             .trim();
 
-        console.log(`\n💬 [ChatBrain] Sofia said: "${cleanText}"\n`);
+        const { speech, showProducts, handover } = extractActions(cleanText, options.catalog);
+        console.log(`\n💬 [ChatBrain] ${options.persona?.name || 'Agent'} said: "${speech}"${showProducts.length ? ` | products: ${showProducts.join(', ')}` : ''}${handover ? ' | HANDOVER' : ''}\n`);
 
         return {
-            content: cleanText
+            content: speech,
+            showProducts,
+            handover: handover && Boolean(options.handoverAvailable)
         };
 
     } catch (err) {
         console.log('❌ [ChatBrain] Error:', err.message);
         return {
-            content: `I'd love to tell you more about ${productName}. What specific feature or question can I help you with?`
+            content: `I'd love to tell you more about ${productName}. What specific feature or question can I help you with?`,
+            showProducts: [],
+            handover: false
         };
     }
 }

@@ -1,8 +1,10 @@
 import mongoose from 'mongoose';
 
 const messageSchema = new mongoose.Schema({
-  role: { type: String, enum: ['user', 'agent'], required: true },
+  // 'agent' = AI persona, 'human' = live specialist who took over the call
+  role: { type: String, enum: ['user', 'agent', 'human'], required: true },
   content: { type: String, required: true },
+  author: { type: String, default: '' },
   timestamp: { type: Date, default: Date.now }
 });
 
@@ -27,6 +29,42 @@ const callSchema = new mongoose.Schema({
     default: 'unknown'
   },
   satisfactionReason: { type: String, default: '' },
+
+  // Buying temperature graded from the transcript at call end
+  leadScore: {
+    type: String,
+    enum: ['hot', 'warm', 'cold', 'unknown'],
+    default: 'unknown'
+  },
+  leadScoreReason: { type: String, default: '' },
+
+  // Commerce attribution: catalog items the agent showed, and which ones the visitor clicked
+  productsShown: [String],
+  productClicks: [{
+    sku: String,
+    at: { type: Date, default: Date.now }
+  }],
+
+  // Human handover
+  handover: {
+    requested: { type: Boolean, default: false },
+    requestedAt: Date,
+    reason: { type: String, default: '' },
+    outcome: {
+      type: String,
+      enum: ['none', 'accepted', 'timeout', 'unavailable', 'cancelled'],
+      default: 'none'
+    },
+    agentName: { type: String, default: '' },
+    acceptedAt: Date
+  },
+
+  // LiveKit Egress recording (when enabled for the product and storage is configured)
+  recording: {
+    egressId: { type: String, default: '' },
+    url: { type: String, default: '' },
+    status: { type: String, enum: ['none', 'recording', 'completed', 'failed'], default: 'none' }
+  },
 
   prospectEmail: { type: String, default: '' },
   prospectName: { type: String, default: '' },

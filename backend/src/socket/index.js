@@ -15,6 +15,9 @@ import {
 } from '../utils/redis.js';
 import { isObjectId } from '../utils/validate.js';
 import { isPrivateAddress } from '../utils/urlSafety.js';
+import { verifyClientToken } from '../utils/authMiddleware.js';
+import { resolvePersona, avatarDispatchMetadata } from '../agent/persona.js';
+import { agentRoom, addAgent, removeAgent, hasOnlineAgents, onlineAgentCount } from '../call/liveAgents.js';
 
 // A socket may only control the call it started (callIds are not secrets: they appear in logs, URLs, etc.)
 // After a reconnect the new socket regains ownership via 'resume-session' + the per-call secret token.
@@ -381,6 +384,9 @@ export function initSocket(server) {
                     }
                 }
 
+                const persona = resolvePersona(product);
+                const handoverMode = product.handover?.mode || 'ai_first';
+
                 const payload = {
                     callId,
                     roomName,
@@ -391,7 +397,17 @@ export function initSocket(server) {
                     productName: product.name,
                     productSummary: product.knowledgeMap?.productSummary || '',
                     knowledgeMap: product.knowledgeMap || null,
-                    suggestedQuestions: [...new Set(suggestedQuestions)].slice(0, 5)
+                    suggestedQuestions: [...new Set(suggestedQuestions)].slice(0, 5),
+                    persona: {
+                        name: persona.name,
+                        role: persona.role,
+                        posterImage: persona.posterImage,
+                        accentColor: persona.accentColor
+                    },
+                    handover: {
+                        mode: handoverMode,
+                        humanAvailable: handoverMode !== 'off' && hasOnlineAgents(product.clientId.toString())
+                    }
                 };
 
                 socket.emit('chat-started', payload);
@@ -401,7 +417,7 @@ export function initSocket(server) {
                 chatOrchestrators.set(callId, orchestrator);
                 socket.activeCallId = callId;
 
-                orchestrator.start().then(() => {
+                orchestrator.start({ prospectName, prospectEmail }).then(() => {
                     console.log(`💬 [${callId}] 1-on-1 Avatar Chat session ready`);
                 }).catch(err => {
                     console.warn(`⚠️ [${callId}] Chat startup error:`, err.message);
@@ -411,7 +427,7 @@ export function initSocket(server) {
                     orchestrator.sendGreeting().catch(e => console.warn('Greeting notice:', e.message));
                 }, 300);
 
-                // Dispatch Keyframe avatar
+                // Dispatch Keyframe avatar with this product's face + voice
                 (async () => {
                     try {
                         const lkUrl = process.env.LIVEKIT_URL.replace('wss://', 'https://');
@@ -420,8 +436,10 @@ export function initSocket(server) {
                             process.env.LIVEKIT_API_KEY,
                             process.env.LIVEKIT_API_SECRET
                         );
-                        await agentDispatch.createDispatch(roomName, 'keyframe-avatar');
-                        console.log(`🎤 Keyframe agent dispatched to room: ${roomName}`);
+                        await agentDispatch.createDispatch(roomName, 'keyframe-avatar', {
+                            metadata: avatarDispatchMetadata(persona)
+                        });
+                        console.log(`🎤 Keyframe agent dispatched to room: ${roomName} (persona: ${persona.keyframePersonaSlug || persona.keyframePersonaId})`);
                     } catch (dispatchErr) {
                         console.warn('ℹ️ Keyframe agent dispatch notice:', dispatchErr.message);
                     }
@@ -499,6 +517,92 @@ export function initSocket(server) {
             }
         });
 
+        // ── Visitor: commerce + human handover ──
+
+        socket.on('product-click', ({ callId, sku } = {}) => {
+            if (!ownsCall(socket, callId, 'product-click')) return;
+            const orchestrator = chatOrchestrators.get(callId);
+            if (orchestrator && typeof sku === 'string') orchestrator.recordProductClick(sku.slice(0, 80));
+        });
+
+        socket.on('request-human', async ({ callId } = {}) => {
+            if (!ownsCall(socket, callId, 'request-human')) return;
+            const orchestrator = chatOrchestrators.get(callId);
+            if (orchestrator) await orchestrator.requestHandover('visitor_request');
+        });
+
+        socket.on('cancel-human', ({ callId } = {}) => {
+            if (!ownsCall(socket, callId, 'cancel-human')) return;
+            chatOrchestrators.get(callId)?.cancelHandover();
+        });
+
+        // ── Live Console (dashboard): human specialists ──
+        // A console socket authenticates with the merchant's dashboard JWT and only ever sees that merchant's calls.
+
+        const consoleOrchestrator = (callId) => {
+            const orch = typeof callId === 'string' ? chatOrchestrators.get(callId) : null;
+            return orch && socket.agentClientId && orch.clientId === socket.agentClientId ? orch : null;
+        };
+
+        const consoleCalls = (clientId) => [...chatOrchestrators.values()]
+            .filter(o => o.clientId === clientId && o.isActive)
+            .map(o => o.consoleSnapshot());
+
+        const broadcastPresence = (clientId) => {
+            io.to(agentRoom(clientId)).emit('agents-online', { count: onlineAgentCount(clientId) });
+        };
+
+        socket.on('agent-auth', ({ token, name } = {}, ack) => {
+            const clientId = verifyClientToken(token);
+            const reply = typeof ack === 'function' ? ack : () => {};
+            if (!clientId) return reply({ ok: false, message: 'Invalid or expired login' });
+
+            socket.agentClientId = clientId;
+            socket.agentName = cleanText(name, 60) || 'Specialist';
+            socket.join(agentRoom(clientId));
+            addAgent(clientId, socket.id, socket.agentName);
+            broadcastPresence(clientId);
+            console.log(`🧑‍💼 Live Console online: ${socket.agentName} (client ${clientId})`);
+
+            reply({ ok: true, calls: consoleCalls(clientId), agentsOnline: onlineAgentCount(clientId) });
+        });
+
+        socket.on('agent-list-calls', (_ = {}, ack) => {
+            if (typeof ack !== 'function' || !socket.agentClientId) return;
+            ack({ ok: true, calls: consoleCalls(socket.agentClientId), agentsOnline: onlineAgentCount(socket.agentClientId) });
+        });
+
+        socket.on('agent-accept', async ({ callId } = {}, ack) => {
+            const reply = typeof ack === 'function' ? ack : () => {};
+            const orch = consoleOrchestrator(callId);
+            if (!orch) return reply({ ok: false, message: 'Call not found or already ended' });
+            try {
+                const session = await orch.humanAccept(socket.agentName, socket.id);
+                reply({ ok: true, session });
+            } catch (err) {
+                reply({ ok: false, message: err.message });
+            }
+        });
+
+        socket.on('agent-message', ({ callId, text } = {}) => {
+            const orch = consoleOrchestrator(callId);
+            const message = cleanText(text, MAX_USER_MESSAGE_CHARS);
+            if (orch && message && orch.humanAgent?.socketId === socket.id) orch.humanMessage(message);
+        });
+
+        socket.on('agent-release', async ({ callId } = {}) => {
+            const orch = consoleOrchestrator(callId);
+            if (orch && orch.humanAgent?.socketId === socket.id) await orch.humanRelease();
+        });
+
+        socket.on('agent-end-call', async ({ callId } = {}) => {
+            const orch = consoleOrchestrator(callId);
+            if (!orch || orch.humanAgent?.socketId !== socket.id) return;
+            io.to(callId).emit('chat-ended', { callId, reason: 'agent' });
+            io.to(callId).emit('demo-ended', { callId, reason: 'agent' });
+            await teardownCall(callId, { status: 'completed', reason: 'user' });
+        });
+
         // Visitor's socket reconnected: reclaim the call it started before the drop
         socket.on('resume-session', ({ callId, sessionToken } = {}) => {
             const alive = typeof callId === 'string' && (orchestrators.has(callId) || chatOrchestrators.has(callId));
@@ -521,6 +625,17 @@ export function initSocket(server) {
         // Handle disconnect: give the visitor a grace period to reconnect before tearing the call down
         socket.on('disconnect', (reason) => {
             console.log(`🔌 Socket disconnected: ${socket.id} (${reason})`);
+
+            // A specialist closed the console: hand their live calls back to the AI
+            if (socket.agentClientId) {
+                removeAgent(socket.agentClientId, socket.id);
+                broadcastPresence(socket.agentClientId);
+                for (const orch of chatOrchestrators.values()) {
+                    if (orch.humanAgent?.socketId === socket.id) {
+                        orch.humanRelease({ dropped: true }).catch(err => console.log('❌ Handover release error:', err.message));
+                    }
+                }
+            }
 
             const callId = socket.activeCallId;
             if (!callId || pendingCleanups.has(callId)) return;
