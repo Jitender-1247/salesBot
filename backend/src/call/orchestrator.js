@@ -1,6 +1,6 @@
 import { transcribeAudio } from '../agent/stt.js';
 import { speak } from '../agent/tts.js';
-import { think } from '../agent/brain/index.js';
+import { think, buildActionFeedback } from '../agent/brain/index.js';
 import { Navigator } from '../agent/navigator/index.js';
 import { decrypt, decryptIfEncrypted } from '../utils/encryption.js';
 import { generateToken } from '../call/room.js';
@@ -327,7 +327,7 @@ export class CallOrchestrator {
                     this.product.knowledgeMap,
                     this.conversationHistory,
                     this.product.name,
-                    pageContext  // NEW: pass page context to brain
+                    pageContext  // pass page context to brain
                 );
 
                 this.io.to(this.callId).emit('agent-thinking', false);
@@ -350,9 +350,12 @@ export class CallOrchestrator {
 
                 // Now execute the browser action after speaking
                 if (decision.finish_reason === 'tool_calls' && decision.message.tool_calls) {
+                    const outcomes = [];
                     for (const toolCall of decision.message.tool_calls) {
                         const toolName = toolCall.function.name;
-                        const toolArgs = JSON.parse(toolCall.function.arguments);
+                        const toolArgs = typeof toolCall.function.arguments === 'string'
+                            ? JSON.parse(toolCall.function.arguments)
+                            : (toolCall.function.arguments || {});
 
                         // Repetition detection: if same action as last turn, force stop
                         const actionKey = `${toolName}:${JSON.stringify(toolArgs)}`;
@@ -363,7 +366,20 @@ export class CallOrchestrator {
                         }
                         this.lastActionKey = actionKey;
 
+                        const prevUrl = this.navigator.getCurrentUrl();
+                        const prevTitle = await this.navigator.page?.title().catch(() => '') || '';
+
                         const result = await this.navigator.executeAction(toolName, toolArgs);
+                        const outcome = await this.navigator.getActionOutcome({ prevUrl, prevTitle });
+                        const fullResult = { ...result, ...outcome };
+
+                        outcomes.push({
+                            tool: toolName,
+                            args: toolArgs,
+                            result: fullResult
+                        });
+                        console.log(`✅ Action outcome:`, fullResult);
+
                         if (result?.ok === false) {
                             // Tell the LLM the browser did NOT move, so its next turn matches the screen
                             this.conversationHistory.push({
@@ -376,6 +392,16 @@ export class CallOrchestrator {
                             tool: toolName,
                             args: toolArgs
                         });
+                    }
+
+                    if (outcomes.length > 0) {
+                        const feedback = buildActionFeedback(outcomes);
+                        if (feedback) {
+                            this.conversationHistory.push({
+                                role: 'system',
+                                content: feedback
+                            });
+                        }
                     }
                 }
 

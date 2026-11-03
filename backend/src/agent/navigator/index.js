@@ -368,7 +368,7 @@ export class Navigator {
 
 
     /**
-     * Get a rich page context with numbered interactable elements.
+     * Get a rich page context with numbered interactable elements tagged with data-zyx-id.
      * This gives the LLM precise targets it can click by ID number.
      */
     async getPageContext() {
@@ -383,76 +383,198 @@ export class Navigator {
 
                 // Get headings for page understanding
                 const headings = Array.from(document.querySelectorAll('h1, h2, h3'))
-                    .map(h => h.innerText.trim())
+                    .map(h => (h.innerText || h.textContent || '').trim())
                     .filter(t => t.length > 0)
                     .slice(0, 6);
 
-                // Build a numbered list of ALL interactable elements
-                const selectors = 'a, button, [role="button"], input, select, textarea, [onclick], [data-test], [data-testid]';
-                const allElements = Array.from(document.querySelectorAll(selectors));
+                const interactableSelectors = 'a, button, [role="button"], input, select, textarea, [role="link"], [role="tab"], [role="menuitem"], [onclick], [data-test], [data-testid]';
+
+                // ── 5. Page outline at top: sections (nav, header, main, footer, aside), section headings inside them, ranked by interactable count ──
+                const sectionElements = Array.from(document.querySelectorAll('nav, header, main, footer, aside'));
+                const outline = sectionElements.map(sec => {
+                    const tag = sec.tagName.toLowerCase();
+                    const secHeadings = Array.from(sec.querySelectorAll('h1, h2, h3, h4, h5, h6'))
+                        .map(h => (h.innerText || h.textContent || '').trim())
+                        .filter(Boolean)
+                        .slice(0, 4);
+                    const interactableCount = sec.querySelectorAll(interactableSelectors).length;
+                    return {
+                        tag,
+                        headings: secHeadings,
+                        interactableCount
+                    };
+                }).sort((a, b) => b.interactableCount - a.interactableCount);
 
                 const elements = [];
-                let id = 1;
+                let nextId = 1;
+                const MAX_ELEMENTS = 50;
 
-                for (const el of allElements) {
-                    // Skip hidden/invisible elements
-                    const rect = el.getBoundingClientRect();
-                    const style = window.getComputedStyle(el);
-                    if (
-                        style.display === 'none' ||
-                        style.visibility === 'hidden' ||
-                        style.opacity === '0' ||
-                        rect.width === 0 ||
-                        rect.height === 0
-                    ) continue;
+                const isVisible = (el) => {
+                    try {
+                        const rect = el.getBoundingClientRect();
+                        const style = window.getComputedStyle(el);
+                        if (
+                            style.display === 'none' ||
+                            style.visibility === 'hidden' ||
+                            style.opacity === '0' ||
+                            rect.width === 0 ||
+                            rect.height === 0
+                        ) return false;
+                        return true;
+                    } catch {
+                        return false;
+                    }
+                };
 
-                    // Get visible text
-                    let text = (el.innerText || el.textContent || '').trim();
-                    if (text.length > 60) text = text.substring(0, 57) + '...';
+                const computeAccessibleName = (el) => {
+                    try {
+                        const aria = el.getAttribute('aria-label');
+                        if (aria && aria.trim()) return aria.trim();
 
-                    // Skip elements with no useful text or identifier
-                    const testId = el.getAttribute('data-test') || el.getAttribute('data-testid') || '';
-                    const ariaLabel = el.getAttribute('aria-label') || '';
-                    const placeholder = el.getAttribute('placeholder') || '';
-                    const name = el.getAttribute('name') || '';
-                    const elId = el.id || '';
-                    const href = el.getAttribute('href') || '';
-                    const type = el.getAttribute('type') || '';
+                        const ariaLabelledBy = el.getAttribute('aria-labelledby');
+                        if (ariaLabelledBy) {
+                            const labelEl = document.getElementById(ariaLabelledBy);
+                            if (labelEl && (labelEl.innerText || labelEl.textContent)) {
+                                const lText = (labelEl.innerText || labelEl.textContent).trim();
+                                if (lText) return lText;
+                            }
+                        }
 
-                    // Must have at least SOME identifying feature
-                    if (!text && !testId && !ariaLabel && !elId && !placeholder && !href) continue;
+                        const text = (el.innerText || el.textContent || '').trim();
+                        if (text) return text;
 
-                    // Build the best CSS selector for this element
-                    let selector = '';
-                    if (testId) selector = `[data-test="${testId}"]`;
-                    else if (el.getAttribute('data-testid')) selector = `[data-testid="${el.getAttribute('data-testid')}"]`;
-                    else if (elId) selector = `#${elId}`;
-                    else if (name) selector = `${el.tagName.toLowerCase()}[name="${name}"]`;
-                    else selector = '';  // Will use text-based click
+                        const title = el.getAttribute('title');
+                        if (title && title.trim()) return title.trim();
 
-                    const tag = el.tagName.toLowerCase();
-                    const role = el.getAttribute('role') || (tag === 'a' ? 'link' : tag === 'button' ? 'button' : tag === 'input' ? 'input' : '');
+                        const alt = el.getAttribute('alt');
+                        if (alt && alt.trim()) return alt.trim();
 
-                    // Is it currently in the viewport?
-                    const inViewport = rect.top < window.innerHeight && rect.bottom > 0;
+                        const placeholder = el.getAttribute('placeholder');
+                        if (placeholder && placeholder.trim()) return placeholder.trim();
 
-                    elements.push({
-                        id: id++,
-                        tag,
-                        role,
-                        text: text || ariaLabel || placeholder || `[${tag}]`,
-                        testId,
-                        selector,
-                        href: tag === 'a' ? href : '',
-                        type,
-                        visible: inViewport
-                    });
+                        const val = el.value;
+                        if (val && typeof val === 'string' && val.trim()) return val.trim();
 
-                    // Cap at 30 elements to keep prompt manageable
-                    if (id > 30) break;
-                }
+                        return '';
+                    } catch {
+                        return '';
+                    }
+                };
 
-                return { title, url, headings, elements };
+                const computeRole = (el, tag) => {
+                    try {
+                        const r = el.getAttribute('role');
+                        if (r && r.trim()) return r.trim();
+                        if (tag === 'a') return 'link';
+                        if (tag === 'button') return 'button';
+                        if (tag === 'select') return 'combobox';
+                        if (tag === 'textarea') return 'textbox';
+                        if (tag === 'input') {
+                            const type = (el.getAttribute('type') || 'text').toLowerCase();
+                            if (['button', 'submit', 'reset'].includes(type)) return 'button';
+                            if (['checkbox', 'radio'].includes(type)) return type;
+                            return 'textbox';
+                        }
+                        return '';
+                    } catch {
+                        return '';
+                    }
+                };
+
+                // Traverse DOM roots (including shadow DOM and iframes)
+                const processRoot = (root, framePrefix = '') => {
+                    if (elements.length >= MAX_ELEMENTS) return;
+
+                    try {
+                        const candidates = Array.from(root.querySelectorAll(interactableSelectors));
+                        for (const el of candidates) {
+                            if (elements.length >= MAX_ELEMENTS) break;
+                            if (!isVisible(el)) continue;
+
+                            let accessibleName = computeAccessibleName(el);
+                            const testId = el.getAttribute('data-test') || el.getAttribute('data-testid') || '';
+                            const elId = el.id || '';
+                            const href = el.getAttribute('href') || '';
+                            const tag = el.tagName.toLowerCase();
+                            const type = el.getAttribute('type') || '';
+                            const name = el.getAttribute('name') || '';
+
+                            // Skip elements with no identifying feature
+                            if (!accessibleName && !testId && !elId && !href && !name && tag !== 'input') continue;
+                            if (accessibleName.length > 60) accessibleName = accessibleName.substring(0, 57) + '...';
+
+                            const id = framePrefix ? `${framePrefix}${nextId++}` : nextId++;
+
+                            // 1. Tag element with unique data-zyx-id attribute directly on DOM element
+                            try {
+                                el.setAttribute('data-zyx-id', String(id));
+                            } catch {}
+
+                            // 2. Selector preference: [data-zyx-id] first, then #id, then [name]
+                            let selector = `[data-zyx-id="${id}"]`;
+                            if (!selector) {
+                                if (elId) selector = `#${elId}`;
+                                else if (name) selector = `${tag}[name="${name}"]`;
+                            }
+
+                            const role = computeRole(el, tag);
+
+                            const rect = el.getBoundingClientRect();
+                            const inViewport = rect.top < (window.innerHeight || document.documentElement.clientHeight) &&
+                                              rect.bottom > 0 &&
+                                              rect.left < (window.innerWidth || document.documentElement.clientWidth) &&
+                                              rect.right > 0;
+
+                            elements.push({
+                                id,
+                                tag,
+                                role,
+                                type,
+                                accessibleName,
+                                text: accessibleName || `[${tag}]`,
+                                testId,
+                                selector,
+                                href: tag === 'a' ? href : '',
+                                visible: inViewport
+                            });
+                        }
+                    } catch {}
+
+                    // 4. Shadow DOM roots traversal (use shadowRoot.querySelectorAll, skip errors silently)
+                    try {
+                        const allNodes = root.querySelectorAll('*');
+                        for (const node of allNodes) {
+                            if (elements.length >= MAX_ELEMENTS) break;
+                            try {
+                                if (node.shadowRoot) {
+                                    processRoot(node.shadowRoot, framePrefix);
+                                }
+                            } catch {}
+                        }
+                    } catch {}
+                };
+
+                // Process main document
+                processRoot(document, '');
+
+                // 3. Traverses iframes (same-origin only, catch cross-origin errors silently) - prefix their id values
+                try {
+                    const iframes = Array.from(document.querySelectorAll('iframe'));
+                    for (let fIdx = 0; fIdx < iframes.length; fIdx++) {
+                        if (elements.length >= MAX_ELEMENTS) break;
+                        try {
+                            const iframe = iframes[fIdx];
+                            const frameDoc = iframe.contentDocument || iframe.contentWindow?.document;
+                            if (frameDoc) {
+                                processRoot(frameDoc, `f${fIdx + 1}_`);
+                            }
+                        } catch {
+                            // Cross-origin access silently ignored
+                        }
+                    }
+                } catch {}
+
+                return { title, url, headings, outline, elements };
             });
 
             return context;
@@ -462,6 +584,7 @@ export class Navigator {
                 title: '',
                 url: this.page?.url() || '',
                 headings: [],
+                outline: [],
                 elements: []
             };
         }
@@ -489,71 +612,85 @@ export class Navigator {
                 }
 
                 case 'click_element': {
-                    console.log(`👆 Clicking: ${toolArgs.description} (${toolArgs.selector})`);
-                    let clicked = false;
+                    console.log(`👆 Clicking: ${toolArgs.description || ''} (dataZyxId: ${toolArgs.dataZyxId}, selector: ${toolArgs.selector})`);
+                    let targetLoc = null;
 
-                    // Strategy 1: Try exact text match via Playwright locator
-                    if (toolArgs.selector.startsWith('text=')) {
-                        const searchText = toolArgs.selector.replace(/^text="?/, '').replace(/"?$/, '');
-                        try {
-                            // Try getByText with exact match first
-                            const exactLoc = this.page.getByText(searchText, { exact: true }).first();
-                            await exactLoc.click({ timeout: 3000 });
-                            clicked = true;
-                            console.log('  ✅ Clicked via exact text match');
-                        } catch {
-                            // Try partial text match
-                            try {
-                                const partialLoc = this.page.getByText(searchText).first();
-                                await partialLoc.click({ timeout: 3000 });
-                                clicked = true;
-                                console.log('  ✅ Clicked via partial text match');
-                            } catch {
-                                // Try getByRole with name
-                                try {
-                                    const roleLoc = this.page.getByRole('link', { name: searchText }).or(
-                                        this.page.getByRole('button', { name: searchText })
-                                    ).first();
-                                    await roleLoc.click({ timeout: 3000 });
-                                    clicked = true;
-                                    console.log('  ✅ Clicked via role match');
-                                } catch {
-                                    // Final: try CSS selector-based approach
-                                    try {
-                                        const cssLoc = this.page.locator(`a:has-text("${searchText}"), button:has-text("${searchText}"), [class*="item"]:has-text("${searchText}")`).first();
-                                        await cssLoc.click({ timeout: 3000 });
-                                        clicked = true;
-                                        console.log('  ✅ Clicked via CSS has-text');
-                                    } catch {
-                                        console.log('  ❌ All text-based click strategies failed');
-                                    }
+                    // Strategy 1: If dataZyxId is present on toolArgs, use [data-zyx-id="N"] as primary target
+                    if (toolArgs.dataZyxId !== undefined && toolArgs.dataZyxId !== null && toolArgs.dataZyxId !== '') {
+                        const zyxSelector = `[data-zyx-id="${toolArgs.dataZyxId}"]`;
+                        let loc = this.page.locator(zyxSelector).first();
+                        let exists = await loc.count().catch(() => 0);
+                        if (exists > 0) {
+                            targetLoc = loc;
+                        } else {
+                            // Check iframes for the element
+                            for (const frame of this.page.frames()) {
+                                const frameLoc = frame.locator(zyxSelector).first();
+                                if (await frameLoc.count().catch(() => 0) > 0) {
+                                    targetLoc = frameLoc;
+                                    break;
                                 }
                             }
                         }
                     }
 
-                    // Strategy 2: Direct CSS selector
-                    if (!clicked) {
-                        try {
-                            const loc = this.page.locator(toolArgs.selector).first();
-                            await loc.click({ timeout: 3000 });
-                            clicked = true;
-                            console.log('  ✅ Clicked via direct selector');
-                        } catch {
-                            // Force click as last resort
+                    // Strategy 2: Fallback to selector or text-based locator
+                    if (!targetLoc && toolArgs.selector) {
+                        if (toolArgs.selector.startsWith('text=')) {
+                            const searchText = toolArgs.selector.replace(/^text="?/, '').replace(/"?$/, '');
                             try {
-                                const loc = this.page.locator(toolArgs.selector).first();
-                                await loc.click({ timeout: 3000, force: true });
-                                clicked = true;
-                                console.log('  ✅ Clicked via force click');
-                            } catch (e) {
-                                console.log(`  ❌ Click completely failed: ${e.message}`);
+                                const exactLoc = this.page.getByText(searchText, { exact: true }).first();
+                                if (await exactLoc.count().catch(() => 0) > 0) {
+                                    targetLoc = exactLoc;
+                                }
+                            } catch {}
+                            if (!targetLoc) {
+                                try {
+                                    const partialLoc = this.page.getByText(searchText).first();
+                                    if (await partialLoc.count().catch(() => 0) > 0) {
+                                        targetLoc = partialLoc;
+                                    }
+                                } catch {}
                             }
+                            if (!targetLoc) {
+                                try {
+                                    const roleLoc = this.page.getByRole('link', { name: searchText }).or(
+                                        this.page.getByRole('button', { name: searchText })
+                                    ).first();
+                                    if (await roleLoc.count().catch(() => 0) > 0) {
+                                        targetLoc = roleLoc;
+                                    }
+                                } catch {}
+                            }
+                            if (!targetLoc) {
+                                targetLoc = this.page.locator(`a:has-text("${searchText}"), button:has-text("${searchText}"), [class*="item"]:has-text("${searchText}")`).first();
+                            }
+                        } else {
+                            targetLoc = this.page.locator(toolArgs.selector).first();
                         }
                     }
 
-                    // Wait briefly for UI animations/modals
-                    await this.page.waitForTimeout(800);
+                    if (targetLoc) {
+                        try {
+                            // 2. Before clicking, scroll the element into view using Playwright's scrollIntoViewIfNeeded()
+                            await targetLoc.scrollIntoViewIfNeeded({ timeout: 3000 }).catch(() => {});
+                            // 3. Wait for it to be visible
+                            await targetLoc.waitFor({ state: 'visible', timeout: 3000 });
+                            // 4. Then click normally (no force: true)
+                            await targetLoc.click({ timeout: 3000 });
+                            console.log('  ✅ Clicked normally (no force)');
+                        } catch (e) {
+                            console.log(`  ❌ Click failed: ${e.message}`);
+                            return { ok: false, error: e.message };
+                        }
+                    } else {
+                        console.log('  ❌ Click target locator not found');
+                        return { ok: false, error: 'Target element not found' };
+                    }
+
+                    // 5. After clicking, wait for networkidle for up to 1500ms (catch silently) so the page can settle
+                    await this.page.waitForLoadState('networkidle', { timeout: 1500 }).catch(() => {});
+                    await this.page.waitForTimeout(500);
                     break;
                 }
 
@@ -644,6 +781,69 @@ export class Navigator {
         } catch (err) {
             console.log(`❌ Action failed (${toolName}):`, err.message);
             return { ok: false, error: err.message };
+        }
+    }
+
+    /**
+     * Capture the outcome after an action execution by comparing against a previous snapshot.
+     */
+    async getActionOutcome(snapshot = {}) {
+        try {
+            const { prevUrl = '', prevTitle = '' } = snapshot;
+
+            // Waits up to 2000ms for either load or networkidle (whichever comes first, both with try/catch)
+            await Promise.race([
+                this.page?.waitForLoadState('load', { timeout: 2000 }).catch(() => {}),
+                this.page?.waitForLoadState('networkidle', { timeout: 2000 }).catch(() => {})
+            ]).catch(() => {});
+
+            const newUrl = this.page?.url() || '';
+            const newTitle = await this.page?.title().catch(() => '') || '';
+
+            const urlChanged = Boolean(prevUrl && newUrl && prevUrl !== newUrl);
+            const titleChanged = Boolean(prevTitle && newTitle && prevTitle !== newTitle);
+
+            // Dialog visible if any [role="dialog"], [role="alertdialog"], .modal, .drawer is visible
+            const dialogInfo = await this.page?.evaluate(() => {
+                const dialogSelectors = '[role="dialog"], [role="alertdialog"], .modal, .drawer';
+                const dialogs = Array.from(document.querySelectorAll(dialogSelectors));
+                for (const d of dialogs) {
+                    const rect = d.getBoundingClientRect();
+                    const style = window.getComputedStyle(d);
+                    if (
+                        style.display !== 'none' &&
+                        style.visibility !== 'hidden' &&
+                        parseFloat(style.opacity || '1') > 0 &&
+                        rect.width > 0 &&
+                        rect.height > 0
+                    ) {
+                        const text = (d.innerText || d.textContent || '').trim().replace(/\s+/g, ' ');
+                        return {
+                            visible: true,
+                            text: text.substring(0, 100)
+                        };
+                    }
+                }
+                return { visible: false, text: '' };
+            }).catch(() => ({ visible: false, text: '' })) || { visible: false, text: '' };
+
+            return {
+                urlChanged,
+                newUrl,
+                titleChanged,
+                newTitle,
+                dialogVisible: Boolean(dialogInfo.visible),
+                dialogText: dialogInfo.text || ''
+            };
+        } catch (err) {
+            return {
+                urlChanged: false,
+                newUrl: this.page?.url() || '',
+                titleChanged: false,
+                newTitle: '',
+                dialogVisible: false,
+                dialogText: ''
+            };
         }
     }
 

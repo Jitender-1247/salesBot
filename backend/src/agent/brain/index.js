@@ -81,7 +81,8 @@ export const navigationTools = [
                 type: 'object',
                 properties: {
                     selector: { type: 'string', description: 'CSS selector of element to click' },
-                    description: { type: 'string', description: 'What this element does' }
+                    description: { type: 'string', description: 'What this element does' },
+                    dataZyxId: { type: 'number', description: 'The data-zyx-id number of the element as listed in INTERACTABLE ELEMENTS. Prefer this over selector.' }
                 },
                 required: ['selector', 'description']
             }
@@ -116,6 +117,35 @@ export const navigationTools = [
                 required: ['selector', 'label']
             }
         }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'scroll_dir',
+            description: 'Scroll the browser viewport up or down',
+            parameters: {
+                type: 'object',
+                properties: {
+                    direction: { type: 'string', enum: ['up', 'down'], description: 'Direction to scroll' }
+                },
+                required: ['direction']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'type_text',
+            description: 'Type text into a focused input field',
+            parameters: {
+                type: 'object',
+                properties: {
+                    selector: { type: 'string', description: 'CSS selector of input field' },
+                    text: { type: 'string', description: 'Text to type' }
+                },
+                required: ['selector', 'text']
+            }
+        }
     }
 ];
 
@@ -133,7 +163,7 @@ function convertToolsForOllama(tools) {
 
 function stripThinkBlocks(text) {
     // Remove <think>...</think> blocks from model output
-    return text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    return (text || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 }
 
 // ── Knowledge-map page matching ──
@@ -185,7 +215,58 @@ function findCurrentPage(pages, currentUrl) {
 }
 
 /**
- * Build a structured system prompt with numbered element list.
+ * Format feedback about action execution outcomes into a structured system message.
+ */
+export function buildActionFeedback(outcomes) {
+    if (!outcomes || outcomes.length === 0) return '';
+
+    const lines = outcomes.map((item, index) => {
+        const num = index + 1;
+        const tool = item.tool;
+        const args = item.args || {};
+        const res = item.result || {};
+
+        let label = tool;
+        if (tool === 'click_element') {
+            const desc = args.description || (args.dataZyxId ? `element #${args.dataZyxId}` : args.selector) || '';
+            label = `click_element "${desc}"`;
+        } else if (tool === 'navigate_to') {
+            const name = args.pageName || args.url || '';
+            label = `navigate_to "${name}"`;
+        } else if (tool === 'type_text') {
+            label = `type_text into "${args.selector}"`;
+        } else if (tool === 'scroll_dir') {
+            label = `scroll_dir ${args.direction}`;
+        }
+
+        if (res.ok === false) {
+            return `${num}. ${label} → Failed: ${res.error || 'Action failed'}`;
+        }
+
+        const parts = [];
+        if (res.urlChanged) {
+            parts.push(`URL changed to ${res.newUrl}`);
+        } else {
+            parts.push('No URL change');
+        }
+
+        if (res.titleChanged && res.newTitle) {
+            parts.push(`Title: "${res.newTitle}"`);
+        }
+
+        if (res.dialogVisible) {
+            const dText = res.dialogText ? `: "${res.dialogText}"` : '';
+            parts.push(`New dialog appeared${dText}`);
+        }
+
+        return `${num}. ${label} → ${parts.join(' | ')}`;
+    });
+
+    return `[System: Action results after your last turn:\n${lines.join('\n')}\n]`;
+}
+
+/**
+ * Build a structured system prompt with numbered element list and page outline.
  * This gives the LLM precise targets for clicking — like a real browser agent.
  */
 function buildSystemPrompt(language, knowledgeMap, productName, pageContext) {
@@ -231,6 +312,15 @@ function buildSystemPrompt(language, knowledgeMap, productName, pageContext) {
     if (pageContext) {
         currentPageSection = `\n═══ CURRENT PAGE STATE ═══\nURL: ${pageContext.url}\nTitle: ${pageContext.title}\nHeadings: ${pageContext.headings?.join(', ') || 'none'}`;
 
+        // Page outline
+        if (pageContext.outline && pageContext.outline.length > 0) {
+            currentPageSection += '\n\nPAGE OUTLINE (sections ranked by interactables):';
+            for (const sec of pageContext.outline) {
+                const headingStr = sec.headings?.length ? ` | Headings: ${sec.headings.join('; ')}` : '';
+                currentPageSection += `\n  • <${sec.tag}> (${sec.interactableCount} elements)${headingStr}`;
+            }
+        }
+
         // Match current page to knowledge map for contextual talking points
         const currentPageKnowledge = findCurrentPage(pages, pageContext.url);
         if (currentPageKnowledge) {
@@ -253,7 +343,9 @@ function buildSystemPrompt(language, knowledgeMap, productName, pageContext) {
             currentPageSection += '\n\nINTERACTABLE ELEMENTS ON THIS PAGE:';
             for (const el of pageContext.elements) {
                 let line = `[${el.id}] ${el.tag}`;
-                if (el.text) line += ` "${el.text}"`;
+                if (el.role && el.role !== el.tag) line += ` (role="${el.role}")`;
+                const textVal = el.accessibleName || el.text || '';
+                if (textVal) line += ` "${textVal}"`;
                 if (el.testId) line += ` (data-test="${el.testId}")`;
                 if (el.selector && !el.testId) line += ` (${el.selector})`;
                 if (el.href && el.href !== '#') line += ` → ${el.href}`;
@@ -298,31 +390,29 @@ ${currentPageSection}
 
 ═══ OUTPUT FORMAT (STRICT RULES) ═══
 
-1. ALWAYS start with a short spoken sentence (1-3 sentences max).
-2. If you need to interact with the browser, append ONE action tag at the END of your message.
-3. After your spoken text + action, you MUST end with either:
-   - [WAIT] → You are done and waiting for the user to speak next.
-   - (no [WAIT]) → You want to take another action immediately without waiting.
+1. ALWAYS start with a short spoken sentence (1-3 sentences max) to explain to the user what you are doing or showing.
+2. FUNCTION CALLING: You may call up to 4 tools in one turn. Execute multi-step navigation like: navigate_to → click_element (tab) all in one response.
+3. After function calls execute, you will receive a system message with what changed. Use that to continue.
+4. When clicking, always use dataZyxId matching the [N] id number from INTERACTABLE ELEMENTS list. This is the most reliable way to click.
+5. If no browser interaction is required, just provide your spoken response.
 
-ACTION TAGS (use exactly one per turn, only if needed):
+FALLBACK ACTION TAGS (for models without native tool calling):
 • [NAVIGATE: full_url] — Go to a different page. Use exact URLs from PRODUCT PAGES above.
 • [CLICK: #id] — Click element by its ID number from the INTERACTABLE ELEMENTS list above. PREFERRED method.
 • [CLICK: visible text] — Click by visible text (fallback if no ID match).
 • [SCROLL_DOWN] — Scroll the page down.
 • [SCROLL_UP] — Scroll the page up.
 • [TYPE: css_selector | text to type] — Type text into an input field.
+• [WAIT] — Waiting for user response.
 
 ═══ CRITICAL RULES ═══
 
-1. PREFER [CLICK: #id] over text-based clicks. Always check the INTERACTABLE ELEMENTS list first.
-2. NEVER repeat an action you already took. If you're already on a page, describe what you see instead.
-3. NEVER output an action tag without spoken text before it. Always say something first.
-4. If the user asks a general question, just answer it and output [WAIT]. Do NOT navigate.
-5. Keep spoken text SHORT — you are on a live call. Max 2-3 sentences.
-6. For multi-step tasks (like "add X to cart"), do ONE step per turn:
-   Turn 1: "Let me open that item for you." [CLICK: #5]
-   Turn 2: "Now I'll add it to your cart." [CLICK: #3]
-   Turn 3: "Done! It's in your cart. What else would you like to see?" [WAIT]
+1. When clicking, always use dataZyxId matching the [N] id number from INTERACTABLE ELEMENTS list. This is the most reliable way to click.
+2. PREFER dataZyxId / [CLICK: #id] over text-based clicks. Always check the INTERACTABLE ELEMENTS list first.
+3. NEVER repeat an action you already took. If you're already on a page, describe what you see instead.
+4. NEVER output an action tag without spoken text before it. Always say something first.
+5. If the user asks a general question, just answer it and output [WAIT] (or no tools). Do NOT navigate.
+6. Keep spoken text SHORT — you are on a live call. Max 2-3 sentences.
 
 /no_think`.trim();
 }
@@ -345,8 +435,65 @@ export async function think(transcript, language, knowledgeMap, conversationHist
     try {
         let content = '';
 
-        if (USE_REMOTE_LLM) {
-            // ── OpenAI-Compatible API (OpenAI / OpenRouter / Groq) ──
+        // ── Native Function Calling (OpenAI / Groq) ──
+        if (USE_REMOTE_LLM && (PROVIDER_NAME === 'OpenAI' || PROVIDER_NAME === 'Groq')) {
+            const response = await fetch(`${LLM_BASE_URL}/chat/completions`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${LLM_API_KEY}`
+                },
+                body: JSON.stringify({
+                    model: LLM_MODEL,
+                    messages,
+                    max_tokens: 500,
+                    temperature: 0.4,
+                    tools: navigationTools,
+                    tool_choice: 'auto'
+                })
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.log(`❌ ${PROVIDER_NAME} error:`, errorText);
+                throw new Error(`${PROVIDER_NAME} error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            const choice = data.choices?.[0];
+            const msg = choice?.message || {};
+            const rawContent = msg.content || '';
+            const spokenText = stripThinkBlocks(rawContent).replace(/\[WAIT\]/gi, '').trim();
+            const rawToolCalls = msg.tool_calls || [];
+
+            console.log(`\n--- RAW ${PROVIDER_NAME} (${LLM_MODEL}) OUTPUT ---`);
+            console.log('Spoken:', spokenText);
+            if (rawToolCalls.length > 0) {
+                console.log('Tool calls:', JSON.stringify(rawToolCalls, null, 2));
+            }
+            console.log('-------------------------------------------\n');
+
+            const toolCalls = rawToolCalls.map(tc => ({
+                id: tc.id,
+                type: tc.type || 'function',
+                function: {
+                    name: tc.function.name,
+                    arguments: tc.function.arguments
+                }
+            }));
+
+            const finish_reason = toolCalls.length > 0 ? 'tool_calls' : (choice?.finish_reason || 'stop');
+
+            return {
+                finish_reason,
+                message: {
+                    content: spokenText,
+                    tool_calls: toolCalls.length > 0 ? toolCalls : undefined
+                }
+            };
+
+        } else if (USE_REMOTE_LLM) {
+            // ── OpenRouter Fallback (Text-based Tag Parsing) ──
             const response = await fetch(`${LLM_BASE_URL}/chat/completions`, {
                 method: 'POST',
                 headers: {
@@ -375,7 +522,7 @@ export async function think(transcript, language, knowledgeMap, conversationHist
             console.log('-------------------------------------------\n');
 
         } else {
-            // ── Ollama (local fallback) ──
+            // ── Ollama Local Fallback (Text-based Tag Parsing) ──
             const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -407,7 +554,7 @@ export async function think(transcript, language, knowledgeMap, conversationHist
             console.log('-------------------------\n');
         }
 
-
+        // ── Text-based Tag Parsing (Fallback for Ollama and OpenRouter) ──
         const toolCalls = [];
         let wantsToWait = false;
 
@@ -415,18 +562,16 @@ export async function think(transcript, language, knowledgeMap, conversationHist
             wantsToWait = true;
         }
 
-        // Parse [NAVIGATE: url] tags — handle various LLM formatting quirks
+        // Parse [NAVIGATE: url] tags
         const navRegex = /\[NAVIGATE:\s*(.+?)\]/gi;
         let match;
         while ((match = navRegex.exec(content)) !== null) {
             const raw = match[1].trim();
-            // Snap to the real knowledge-map URL so small LLM typos still land on the right page
             const page = matchKnownPage(raw, knowledgeMap.pages || [], pageContext?.url);
             const url = page ? page.url : cleanNavTarget(raw);
             if (page && page.url !== raw) {
                 console.log(`🎯 Resolved [NAVIGATE: ${raw}] → ${page.name} (${page.url})`);
             }
-            // Skip if the URL is the same as the current page
             if (pageContext && urlKey(pageContext.url) === urlKey(url, pageContext.url)) {
                 console.log(`⚠️ Skipping duplicate navigation to current page: ${url}`);
                 continue;
@@ -443,22 +588,20 @@ export async function think(transcript, language, knowledgeMap, conversationHist
         const clickRegex = /\[CLICK:\s*(.+?)\]/gi;
         while ((match = clickRegex.exec(content)) !== null) {
             const raw = match[1].trim();
-
-            // Check if it's an element ID reference like #5 or #12
-            const idMatch = raw.match(/^#(\d+)$/);
+            const idMatch = raw.match(/^#?(\d+)$/);
             if (idMatch && pageContext?.elements) {
-                const elementId = parseInt(idMatch[1]);
-                const element = pageContext.elements.find(el => el.id === elementId);
+                const elementId = parseInt(idMatch[1], 10);
+                const element = pageContext.elements.find(el => el.id === elementId || String(el.id) === String(elementId));
                 if (element) {
-                    // Use the best selector available for this element
-                    const selector = element.selector || `text="${element.text}"`;
-                    console.log(`🎯 Resolved [CLICK: #${elementId}] → "${element.text}" (${selector})`);
+                    const selector = element.selector || `[data-zyx-id="${element.id}"]`;
+                    console.log(`🎯 Resolved [CLICK: #${elementId}] → "${element.accessibleName || element.text}" (${selector})`);
                     toolCalls.push({
                         function: {
                             name: 'click_element',
                             arguments: JSON.stringify({
+                                dataZyxId: elementId,
                                 selector,
-                                description: element.text,
+                                description: element.accessibleName || element.text || `Element ${elementId}`,
                                 elementId
                             })
                         }
@@ -473,7 +616,6 @@ export async function think(transcript, language, knowledgeMap, conversationHist
                     });
                 }
             } else {
-                // Legacy text-based click
                 toolCalls.push({
                     function: {
                         name: 'click_element',
