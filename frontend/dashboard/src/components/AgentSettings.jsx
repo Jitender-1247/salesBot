@@ -142,7 +142,15 @@ export default function AgentSettings({ product, onSaved }) {
                         </datalist>
                     </Field>
                     <Field title="Poster image URL" help="A still of the same face, shown on the bubble and before the video connects.">
-                        <input className="ultra-input text-xs" value={persona.posterImage || ''} onChange={setP('posterImage')} placeholder="https://…/sofia.png" />
+                        <div className="flex items-center gap-3">
+                            <input className="ultra-input text-xs" value={persona.posterImage || ''} onChange={setP('posterImage')} placeholder="https://…/sofia.png" />
+                            {persona.posterImage && (
+                                <img key={persona.posterImage} src={persona.posterImage} alt="Poster preview"
+                                    className="w-10 h-10 rounded-full object-cover flex-shrink-0"
+                                    style={{ border: '2px solid var(--border-light)' }}
+                                    onError={(e) => { e.currentTarget.style.opacity = '0.2'; e.currentTarget.title = 'Image could not be loaded'; }} />
+                            )}
+                        </div>
                     </Field>
                     <Field title="Accent color">
                         <div className="flex gap-2">

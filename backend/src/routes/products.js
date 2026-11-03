@@ -168,6 +168,12 @@ const boundedNumber = (v, min, max, fallback) => {
 function parseAgentConfig(body) {
   const update = {};
 
+  if (body.name !== undefined) {
+    const name = optionalString(body.name, 120);
+    if (!name) return { error: 'Product name is required (max 120 characters)' };
+    update.name = name;
+  }
+
   if (body.persona !== undefined) {
     const p = body.persona || {};
     const persona = {
@@ -285,7 +291,7 @@ router.patch('/:id/config', protect, async (req, res) => {
     if (error) return res.status(400).json({ message: error });
 
     const saved = await Product.findByIdAndUpdate(product._id, update, { new: true, runValidators: true })
-      .select('persona catalog nudges handover recordingEnabled');
+      .select('name persona catalog nudges handover recordingEnabled');
     res.json(saved);
   } catch (err) {
     console.error('Save agent config error:', err);
