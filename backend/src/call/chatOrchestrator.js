@@ -1,5 +1,5 @@
 import { transcribeAudio } from '../agent/stt.js';
-import { speak } from '../agent/tts.js';
+import { streamSpeech, streamPcmSpeech, PCM_SAMPLE_RATE } from '../agent/tts.js';
 import { thinkChat } from '../agent/brain/chatBrain.js';
 import { resolvePersona } from '../agent/persona.js';
 import { RoomServiceClient } from 'livekit-server-sdk';
@@ -63,6 +63,10 @@ export class ChatOrchestrator {
         this.humanAgent = null; // { name, socketId }
 
         this.egressId = '';
+        this.lastChunkSentAt = 0;
+        this.playbackCompletedAt = 0;
+        // Resolves once the product/persona has loaded, so the greeting uses the right persona
+        this.loaded = new Promise(resolve => { this.markLoaded = resolve; });
     }
 
     static IDLE_TIMEOUT_MS = 12000;     // 12s silence before checking in
@@ -183,7 +187,8 @@ export class ChatOrchestrator {
         }, remaining);
     }
 
-    async start({ prospectName = '', prospectEmail = '' } = {}) {
+    async start({ prospectName = '', prospectEmail = '', supportsPcm = false } = {}) {
+        this.supportsPcm = supportsPcm;
         try {
             this.product = await Product.findById(this.productId);
             if (!this.product) throw new Error('Product not found');
@@ -197,6 +202,7 @@ export class ChatOrchestrator {
 
             this.isActive = true;
             this.startTime = Date.now();
+            this.markLoaded();
 
             console.log(`💬 [ChatOrchestrator] 1-on-1 Avatar Chat active for ${this.product.name} as ${this.agentName}`);
 
@@ -212,6 +218,7 @@ export class ChatOrchestrator {
         } catch (err) {
             console.log('❌ [ChatOrchestrator] Start failed:', err.message);
             this.isActive = false;
+            this.markLoaded();
             throw err;
         }
     }
@@ -219,6 +226,8 @@ export class ChatOrchestrator {
     async sendGreeting() {
         if (this.hasGreeted) return;
         this.hasGreeted = true;
+        await Promise.race([this.loaded, new Promise(r => setTimeout(r, 3000))]);
+        if (!this.product) return; // start() failed
         this.isActive = true;
 
         console.log(`👋 [Chat ${this.callId}] Sending 1-on-1 greeting to visitor...`);
@@ -575,6 +584,7 @@ export class ChatOrchestrator {
     // ── Speech ──
 
     handleAudioPlaybackComplete() {
+        this.playbackCompletedAt = Date.now();
         if (this.audioPlaybackResolver) {
             this.audioPlaybackResolver();
             this.audioPlaybackResolver = null;
@@ -623,33 +633,62 @@ export class ChatOrchestrator {
             this.currentSpeechController = controller;
             const voice = { provider: this.persona.voiceProvider, id: this.persona.voiceId };
 
-            this.io.to(this.callId).emit('agent-speaking', { text, speaking: true });
-            this.io.to(this.callId).emit('agent-state', 'speaking');
-
             if (this.interruptRequested && interruptId < this.speechSequence) {
                 console.log('🛑 [Chat] Speech interrupted by user.');
                 this.io.to(this.callId).emit('agent-speaking', { text, speaking: false, interrupted: true });
                 return;
             }
 
-            // Send speak data to Keyframe avatar in LiveKit room for lip sync (same voice as the persona)
-            if (await this.sendAvatarData({ type: 'speak', text, voice })) {
-                console.log(`📡 [Chat] Sent speak data to Keyframe avatar: "${text.substring(0, 50)}..."`);
-            }
+            // Exactly one voice: the Keyframe avatar (lip-synced, its own TTS) when it is in the room,
+            // otherwise sentence-by-sentence audio streamed to the widget. Never both.
+            const avatarLive = await this.sendAvatarData({ type: 'speak', text, voice });
+            const room = this.io.to(this.callId);
 
-            // Sentence-level TTS streaming
-            try {
-                const roomEmitter = this.io.to(this.callId);
-                await speak(text, controller.signal, roomEmitter, voice);
-            } catch (ttsErr) {
-                if (ttsErr.name !== 'AbortError') {
-                    console.warn(`⚠️ [Chat] TTS streaming error: ${ttsErr.message}`);
+            // 'mode' tells the widget when to reveal the caption: with each audio chunk, or when the avatar starts talking
+            room.emit('agent-speaking', { text, speaking: true, mode: avatarLive ? 'avatar' : 'audio' });
+            room.emit('agent-state', 'speaking');
+
+            if (avatarLive) {
+                console.log(`📡 [Chat] Avatar speaking: "${text.substring(0, 50)}..."`);
+            } else {
+                try {
+                    room.emit('agent-audio-stream-start', { text });
+
+                    // Widgets that can play raw PCM get true streaming (~0.4s to first sound)
+                    let streamedBytes = 0;
+                    if (this.supportsPcm) {
+                        streamedBytes = await streamPcmSpeech(text, {
+                            signal: controller.signal,
+                            voice,
+                            onPcm: (buf) => room.emit('agent-audio-pcm', { audio: buf.toString('base64'), sampleRate: PCM_SAMPLE_RATE })
+                        });
+                        if (streamedBytes) {
+                            this.lastChunkSentAt = Date.now();
+                            room.emit('agent-audio-pcm-end', { text });
+                        }
+                    }
+
+                    // Otherwise (or if streaming failed): sentence-by-sentence MP3, each with its caption text
+                    if (!streamedBytes && !controller.signal.aborted) await streamSpeech(text, {
+                        signal: controller.signal,
+                        voice,
+                        onChunk: ({ audio, text: piece, index, total }) => {
+                            this.lastChunkSentAt = Date.now();
+                            room.emit('agent-audio-chunk', { audio: audio.toString('base64'), text: piece, index, total });
+                        }
+                    });
+                } catch (ttsErr) {
+                    if (ttsErr.name !== 'AbortError') {
+                        console.warn(`⚠️ [Chat] TTS streaming error: ${ttsErr.message}`);
+                    }
                 }
             }
 
-            // Wait for audio playback
+            // Wait for the widget to finish playing (avatar mode has no signal, so it's estimated from length)
             const timeoutMs = Math.max(2500, Math.ceil((text.length / 14) * 1000) + 1200);
-            await this.waitForAudioPlayback(timeoutMs);
+            if (avatarLive || !(this.playbackCompletedAt > this.lastChunkSentAt)) {
+                await this.waitForAudioPlayback(timeoutMs);
+            }
 
             if (this.interruptRequested && interruptId < this.speechSequence) {
                 this.io.to(this.callId).emit('agent-speaking', { text, speaking: false, interrupted: true });

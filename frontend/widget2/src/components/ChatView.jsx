@@ -54,6 +54,22 @@ export default function ChatView({ callData, socket, onEnd }) {
     const audioPlayerRef = useRef(null);
     const timerRef = useRef(null);
     const typingRef = useRef(null);
+    // Reply text waiting for its voice to start (captions follow the audio, not the other way round)
+    const pendingTextRef = useRef('');
+    const avatarDelayRef = useRef(null);
+
+    const startTypewriter = useCallback((text) => {
+        clearInterval(typingRef.current);
+        const words = (text || '').split(' ');
+        let wordIdx = 0;
+        typingRef.current = setInterval(() => {
+            wordIdx++;
+            setDisplayedText(words.slice(0, wordIdx).join(' '));
+            if (wordIdx >= words.length) clearInterval(typingRef.current);
+        }, 360);
+        setAgentState('speaking');
+        setIsSpeaking(true);
+    }, []);
     const messagesEndRef = useRef(null);
 
     const genId = () => `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -105,42 +121,49 @@ export default function ChatView({ callData, socket, onEnd }) {
 
         const onAgentSpeaking = (data) => {
             if (data.speaking) {
-                setAgentState('speaking');
-                setIsSpeaking(true);
-
                 clearInterval(typingRef.current);
+                clearTimeout(avatarDelayRef.current);
                 setDisplayedText('');
+                pendingTextRef.current = '';
 
-                const words = data.text.split(' ');
-                const msPerWord = 350;
-                let wordIdx = 0;
-
-                typingRef.current = setInterval(() => {
-                    wordIdx++;
-                    setDisplayedText(words.slice(0, wordIdx).join(' '));
-                    if (wordIdx >= words.length) {
-                        clearInterval(typingRef.current);
-                    }
-                }, msPerWord);
+                if (data.mode === 'audio') {
+                    // Typewriter starts when the first audio chunk starts playing
+                    pendingTextRef.current = data.text || '';
+                } else if (data.mode === 'avatar') {
+                    // The avatar needs ~1s to synthesise before it talks
+                    avatarDelayRef.current = setTimeout(() => startTypewriter(data.text), 1200);
+                } else {
+                    startTypewriter(data.text);
+                }
             } else {
                 clearInterval(typingRef.current);
+                clearTimeout(avatarDelayRef.current);
+                pendingTextRef.current = '';
                 if (data.interrupted) {
                     audioPlayerRef.current?.stop();
-                    setDisplayedText('');
                 }
+                const spoken = (data.text || '').trim();
+                if (spoken) {
+                    setMessages(m => {
+                        const last = m[m.length - 1];
+                        if (last && last.role === 'agent' && last.content === spoken) return m;
+                        return [...m, { id: genId(), role: 'agent', content: spoken, timestamp: new Date() }];
+                    });
+                }
+                setDisplayedText('');
                 setAgentState('idle');
                 setIsSpeaking(false);
             }
         };
 
-        const onAgentAudioStreamStart = () => {
-            audioPlayerRef.current?.startStreaming();
-        };
+        const onAgentAudioStreamStart = () => {};
 
+        // Base64 MP3 sentence from the backend → object URL for the player
         const onAgentAudioChunk = (data) => {
-            if (data.audio) {
-                audioPlayerRef.current?.enqueueAudioChunk(data.audio);
-            }
+            if (!data.audio) return;
+            const bytes = Uint8Array.from(atob(data.audio), c => c.charCodeAt(0));
+            const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }));
+            audioPlayerRef.current?.enqueue(url);
         };
 
         const onAgentState = (state) => {
@@ -183,7 +206,7 @@ export default function ChatView({ callData, socket, onEnd }) {
             socket.off('agent-state', onAgentState);
             socket.off('user-transcript', onUserTranscript);
         };
-    }, [socket]);
+    }, [socket, startTypewriter]);
 
     const handleRecordingComplete = useCallback((audioBlob) => {
         if (!socket || !callData) return;
@@ -194,24 +217,9 @@ export default function ChatView({ callData, socket, onEnd }) {
         });
     }, [socket, callData]);
 
+    // The queue can drain between two sentences, so this only reports progress to the backend;
+    // the reply is finalised when the backend sends agent-speaking { speaking: false }.
     const handlePlaybackEnd = useCallback(() => {
-        setAgentState('idle');
-        setIsSpeaking(false);
-        setDisplayedText(prev => {
-            if (prev) {
-                setMessages(m => {
-                    const last = m[m.length - 1];
-                    if (last && last.role === 'agent' && last.content === prev) return m;
-                    return [...m, {
-                        id: genId(),
-                        role: 'agent',
-                        content: prev,
-                        timestamp: new Date()
-                    }];
-                });
-            }
-            return '';
-        });
         if (socket && callData) {
             socket.emit('audio-playback-complete', { callId: callData.callId });
         }
@@ -220,7 +228,12 @@ export default function ChatView({ callData, socket, onEnd }) {
     const handlePlaybackStart = useCallback(() => {
         setAgentState('speaking');
         setIsSpeaking(true);
-    }, []);
+        if (pendingTextRef.current) {
+            const text = pendingTextRef.current;
+            pendingTextRef.current = '';
+            startTypewriter(text);
+        }
+    }, [startTypewriter]);
 
     const handleRecordingStart = useCallback(() => {
         setAgentState('listening');

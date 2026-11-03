@@ -1,11 +1,14 @@
 import { useRef, useEffect, useState, useCallback, useImperativeHandle, forwardRef } from 'react';
 
-const AudioPlayer = forwardRef(function AudioPlayer({ onPlaybackEnd, onPlaybackStart, muted = false }, ref) {
+// Each queued chunk is { url, text }; onChunkStart(text, seconds) fires when that chunk's audio actually starts,
+// so the widget can reveal the matching caption in sync with the voice.
+const AudioPlayer = forwardRef(function AudioPlayer({ onPlaybackEnd, onPlaybackStart, onChunkStart, muted = false }, ref) {
     const audioEls = useRef(null);
     const activeIdx = useRef(0);
     const loadedUrls = useRef(['', '']);
     const queueRef = useRef([]);
     const isPlayingRef = useRef(false);
+    const startedRef = useRef(false);
     const [isPlaying, setIsPlaying] = useState(false);
     const [bars, setBars] = useState(Array(18).fill(4));
 
@@ -41,7 +44,7 @@ const AudioPlayer = forwardRef(function AudioPlayer({ onPlaybackEnd, onPlaybackS
         const els = audioEls.current;
         if (!els || queueRef.current.length === 0) return;
         const idleIdx = 1 - activeIdx.current;
-        const nextUrl = queueRef.current[0];
+        const nextUrl = queueRef.current[0].url;
         if (loadedUrls.current[idleIdx] !== nextUrl) {
             els[idleIdx].src = nextUrl;
             els[idleIdx].load();
@@ -53,12 +56,13 @@ const AudioPlayer = forwardRef(function AudioPlayer({ onPlaybackEnd, onPlaybackS
         const els = audioEls.current;
         if (!els || queueRef.current.length === 0) {
             isPlayingRef.current = false;
+            startedRef.current = false;
             setIsPlaying(false);
             onPlaybackEnd();
             return;
         }
 
-        const url = queueRef.current.shift();
+        const { url, text } = queueRef.current.shift();
         const currentIdx = activeIdx.current;
         const idleIdx = 1 - currentIdx;
         let elToPlay;
@@ -93,18 +97,22 @@ const AudioPlayer = forwardRef(function AudioPlayer({ onPlaybackEnd, onPlaybackS
             if (!isPlayingRef.current) {
                 isPlayingRef.current = true;
                 setIsPlaying(true);
+            }
+            if (!startedRef.current) {
+                startedRef.current = true;
                 onPlaybackStart();
             }
+            if (text) onChunkStart?.(text, Number.isFinite(elToPlay.duration) ? elToPlay.duration : 0);
         }).catch(err => {
             console.warn('[AudioPlayer] play() rejected:', err.message);
             playNext();
         });
     }, [preloadNext, onPlaybackStart, onPlaybackEnd]);
 
-    const enqueueAudioChunk = useCallback((base64Audio) => {
+    const enqueueAudioChunk = useCallback((base64Audio, text = '') => {
         if (!base64Audio) return;
         const audioUrl = `data:audio/mp3;base64,${base64Audio}`;
-        queueRef.current.push(audioUrl);
+        queueRef.current.push({ url: audioUrl, text });
 
         if (!isPlayingRef.current) {
             isPlayingRef.current = true;
@@ -122,6 +130,7 @@ const AudioPlayer = forwardRef(function AudioPlayer({ onPlaybackEnd, onPlaybackS
     const stop = useCallback(() => {
         queueRef.current = [];
         isPlayingRef.current = false;
+        startedRef.current = false;
         setIsPlaying(false);
         if (audioEls.current) {
             audioEls.current.forEach(el => {

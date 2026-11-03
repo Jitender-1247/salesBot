@@ -4,6 +4,7 @@ import AudioPlayer from './AudioPlayer';
 import AudioRecorder from './AudioRecorder';
 import KnowledgeCard from './KnowledgeCard';
 import ProductCard from './ProductCard';
+import PcmStreamPlayer from '../audio/PcmStreamPlayer';
 
 const statusLabels = (name) => ({
     idle: 'Online & Ready',
@@ -90,25 +91,109 @@ export default function ChatView({
         }
     }, [agentState]);
 
+    // ── Captions in sync with the voice ──
+    // Audio mode: each sentence's words are revealed while that sentence's audio plays.
+    // Avatar mode: the reply is revealed once the Keyframe avatar actually starts talking.
+    const captionBaseRef = useRef('');
+    const pendingAvatarTextRef = useRef('');
+    const avatarFallbackRef = useRef(null);
+
+    const revealCaption = useCallback((piece, seconds = 0) => {
+        clearInterval(captionIntervalRef.current);
+        const words = (piece || '').split(/\s+/).filter(Boolean);
+        if (!words.length) return;
+        const base = captionBaseRef.current;
+        const full = base ? `${base} ${piece}` : piece;
+        captionBaseRef.current = full;
+        // Spread the words over ~90% of the clip; ~2.8 words/s when the length is unknown
+        const msPerWord = seconds > 0 ? Math.max(90, (seconds * 900) / words.length) : 360;
+        let i = 0;
+        captionIntervalRef.current = setInterval(() => {
+            i++;
+            setLiveCaption((base ? `${base} ` : '') + words.slice(0, i).join(' '));
+            if (i >= words.length) clearInterval(captionIntervalRef.current);
+        }, msPerWord);
+        setAgentState('speaking');
+        setIsSpeaking(true);
+    }, []);
+
+    // ── Streamed speech (raw PCM): caption follows the actual playback position ──
+    const pcmPlayerRef = useRef(null);
+    const pcmCaptionTimerRef = useRef(null);
+    const callIdRef = useRef(callData?.callId);
+    useEffect(() => { callIdRef.current = callData?.callId; }, [callData?.callId]);
+
+    useEffect(() => {
+        let shownChars = 0;
+        const player = new PcmStreamPlayer({
+            onStart: () => {
+                shownChars = 0;
+                setAgentState('speaking');
+                setIsSpeaking(true);
+                clearInterval(pcmCaptionTimerRef.current);
+                pcmCaptionTimerRef.current = setInterval(() => {
+                    const { played, total, finished, text } = player.progress();
+                    if (!text) return;
+                    // ~15 chars/s until the stream completes, then the exact rate for this reply
+                    const rate = finished && total > 0 ? text.length / total : 15;
+                    let idx = Math.min(text.length, Math.floor(played * rate));
+                    if (idx < text.length) {
+                        const space = text.lastIndexOf(' ', idx);
+                        idx = space > 0 ? space : 0;
+                    }
+                    if (idx > shownChars) {
+                        shownChars = idx;
+                        setLiveCaption(text.slice(0, idx));
+                    }
+                }, 80);
+            },
+            onEnd: () => {
+                clearInterval(pcmCaptionTimerRef.current);
+                const { text } = player.progress();
+                if (text) setLiveCaption(text);
+                if (socket && callIdRef.current) {
+                    socket.emit('audio-playback-complete', { callId: callIdRef.current });
+                }
+            }
+        });
+        pcmPlayerRef.current = player;
+        return () => {
+            clearInterval(pcmCaptionTimerRef.current);
+            player.close();
+        };
+    }, [socket]);
+
+    const handleAvatarSpeaking = useCallback((speaking) => {
+        if (!speaking || !pendingAvatarTextRef.current) return;
+        clearTimeout(avatarFallbackRef.current);
+        const text = pendingAvatarTextRef.current;
+        pendingAvatarTextRef.current = '';
+        revealCaption(text);
+    }, [revealCaption]);
+
     // Socket event handlers
     useEffect(() => {
         if (!socket) return;
 
         const handleSpeaking = (data) => {
             if (data.speaking) {
-                setAgentState('speaking');
-                setIsSpeaking(true);
                 clearInterval(captionIntervalRef.current);
+                clearTimeout(avatarFallbackRef.current);
+                captionBaseRef.current = '';
+                pendingAvatarTextRef.current = '';
                 setLiveCaption('');
 
-                // Word-by-word typewriter
-                const words = (data.text || '').split(' ');
-                let i = 0;
-                captionIntervalRef.current = setInterval(() => {
-                    i++;
-                    setLiveCaption(words.slice(0, i).join(' '));
-                    if (i >= words.length) clearInterval(captionIntervalRef.current);
-                }, 320);
+                clearInterval(pcmCaptionTimerRef.current);
+                pcmPlayerRef.current?.begin(data.mode === 'audio' ? data.text : '');
+
+                if (data.mode === 'avatar') {
+                    // Reveal when the avatar starts talking; fall back if that signal never comes
+                    pendingAvatarTextRef.current = data.text || '';
+                    avatarFallbackRef.current = setTimeout(() => handleAvatarSpeaking(true), 3000);
+                } else if (data.mode !== 'audio') {
+                    revealCaption(data.text); // older backend: no audio sync info
+                }
+                // mode 'audio': captions start with each audio chunk (AudioPlayer onChunkStart)
 
                 // Auto-trigger Knowledge Card if text mentions a known page/feature
                 if (knowledgeMap?.pages?.length) {
@@ -122,13 +207,35 @@ export default function ChatView({
                 }
             } else {
                 clearInterval(captionIntervalRef.current);
+                clearTimeout(avatarFallbackRef.current);
+                pendingAvatarTextRef.current = '';
+                captionBaseRef.current = '';
                 if (data.interrupted) {
                     audioPlayerRef.current?.stop();
-                    setLiveCaption('');
+                    pcmPlayerRef.current?.stop();
                 }
+                clearInterval(pcmCaptionTimerRef.current);
+                // The full reply goes into the history once it has been spoken
+                const spoken = (data.text || '').trim();
+                if (spoken) {
+                    setMessages(m => {
+                        const last = m[m.length - 1];
+                        if (last && last.role === 'agent' && last.content === spoken) return m;
+                        return [...m, { id: makeMsgId(), role: 'agent', content: spoken, timestamp: new Date() }];
+                    });
+                }
+                setLiveCaption('');
                 setAgentState('idle');
                 setIsSpeaking(false);
             }
+        };
+
+        const handlePcm = (data) => {
+            if (data.audio) pcmPlayerRef.current?.push(data.audio, data.sampleRate);
+        };
+
+        const handlePcmEnd = () => {
+            pcmPlayerRef.current?.end();
         };
 
         const handleStreamStart = () => {
@@ -137,7 +244,7 @@ export default function ChatView({
 
         const handleAudioChunk = (data) => {
             if (data.audio) {
-                audioPlayerRef.current?.enqueueAudioChunk(data.audio);
+                audioPlayerRef.current?.enqueueAudioChunk(data.audio, data.text);
             }
         };
 
@@ -191,6 +298,8 @@ export default function ChatView({
         socket.on('agent-speaking', handleSpeaking);
         socket.on('agent-audio-stream-start', handleStreamStart);
         socket.on('agent-audio-chunk', handleAudioChunk);
+        socket.on('agent-audio-pcm', handlePcm);
+        socket.on('agent-audio-pcm-end', handlePcmEnd);
         socket.on('agent-state', handleState);
         socket.on('user-transcript', handleUserTranscript);
         socket.on('agent-card', handleAgentCard);
@@ -202,6 +311,8 @@ export default function ChatView({
             socket.off('agent-speaking', handleSpeaking);
             socket.off('agent-audio-stream-start', handleStreamStart);
             socket.off('agent-audio-chunk', handleAudioChunk);
+            socket.off('agent-audio-pcm', handlePcm);
+            socket.off('agent-audio-pcm-end', handlePcmEnd);
             socket.off('agent-state', handleState);
             socket.off('user-transcript', handleUserTranscript);
             socket.off('agent-card', handleAgentCard);
@@ -209,7 +320,7 @@ export default function ChatView({
             socket.off('handover-update', handleHandoverUpdate);
             socket.off('human-message', handleHumanMessage);
         };
-    }, [socket, knowledgeMap]);
+    }, [socket, knowledgeMap, revealCaption, handleAvatarSpeaking]);
 
     // Audio handlers
     const handleRecordingComplete = useCallback((blob) => {
@@ -218,19 +329,9 @@ export default function ChatView({
         socket.emit('audio-blob', { callId: callData.callId, audio: blob });
     }, [socket, callData]);
 
+    // The queue can drain between two sentences, so this only reports progress to the backend;
+    // the reply is finalised when the backend sends agent-speaking { speaking: false }.
     const handlePlaybackEnd = useCallback(() => {
-        setAgentState('idle');
-        setIsSpeaking(false);
-        setLiveCaption(prev => {
-            if (prev) {
-                setMessages(m => {
-                    const last = m[m.length - 1];
-                    if (last && last.role === 'agent' && last.content === prev) return m;
-                    return [...m, { id: makeMsgId(), role: 'agent', content: prev, timestamp: new Date() }];
-                });
-            }
-            return '';
-        });
         if (socket && callData) {
             socket.emit('audio-playback-complete', { callId: callData.callId });
         }
@@ -247,6 +348,8 @@ export default function ChatView({
 
     const handleInterrupt = useCallback(() => {
         audioPlayerRef.current?.stop();
+        pcmPlayerRef.current?.stop();
+        clearInterval(pcmCaptionTimerRef.current);
         setAgentState('idle');
         setIsSpeaking(false);
     }, []);
@@ -390,6 +493,7 @@ export default function ChatView({
                             agentName={agentName}
                             humanName={isHumanLive ? handover.agentName : ''}
                             micEnabled={isHumanLive}
+                            onAvatarSpeaking={handleAvatarSpeaking}
                         />
 
                         {/* Real-time status badge */}
@@ -539,6 +643,7 @@ export default function ChatView({
                     muted={false}
                     onPlaybackStart={handlePlaybackStart}
                     onPlaybackEnd={handlePlaybackEnd}
+                    onChunkStart={revealCaption}
                 />
             </div>
         </div>

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import ChatView from './components/ChatView';
+import { unlockAudio } from './audio/PcmStreamPlayer';
 
 const BACKEND_URL = import.meta.env.PROD
     ? ''
@@ -153,11 +154,13 @@ export default function App() {
 
         setErrorMessage('');
         setScreen('loading');
+        unlockAudio(); // inside the click, so the agent's voice is allowed to play
 
         socket.emit('start-chat', {
             productId,
             prospectName: userForm.name,
-            prospectEmail: userForm.email
+            prospectEmail: userForm.email,
+            audioFormats: ['pcm16', 'mp3']
         });
     };
 

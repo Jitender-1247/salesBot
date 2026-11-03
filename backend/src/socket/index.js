@@ -417,7 +417,9 @@ export function initSocket(server) {
                 chatOrchestrators.set(callId, orchestrator);
                 socket.activeCallId = callId;
 
-                orchestrator.start({ prospectName, prospectEmail }).then(() => {
+                // widget3 plays streamed raw PCM; older widgets get MP3 chunks
+                const supportsPcm = Array.isArray(startArgs.audioFormats) && startArgs.audioFormats.includes('pcm16');
+                orchestrator.start({ prospectName, prospectEmail, supportsPcm }).then(() => {
                     console.log(`💬 [${callId}] 1-on-1 Avatar Chat session ready`);
                 }).catch(err => {
                     console.warn(`⚠️ [${callId}] Chat startup error:`, err.message);

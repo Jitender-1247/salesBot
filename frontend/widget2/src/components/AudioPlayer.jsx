@@ -6,6 +6,7 @@ const AudioPlayer = forwardRef(function AudioPlayer({ onPlaybackEnd, onPlaybackS
     const loadedUrls = useRef(['', '']);
     const queueRef = useRef([]);
     const isPlayingRef = useRef(false);
+    const startedRef = useRef(false);
     const [isPlaying, setIsPlaying] = useState(false);
     const [bars, setBars] = useState(Array(20).fill(4));
 
@@ -53,6 +54,7 @@ const AudioPlayer = forwardRef(function AudioPlayer({ onPlaybackEnd, onPlaybackS
         const els = audioEls.current;
         if (!els || queueRef.current.length === 0) {
             isPlayingRef.current = false;
+            startedRef.current = false;
             setIsPlaying(false);
             onPlaybackEnd();
             return;
@@ -89,9 +91,11 @@ const AudioPlayer = forwardRef(function AudioPlayer({ onPlaybackEnd, onPlaybackS
 
         curAudio.play()
             .then(() => {
-                if (!isPlayingRef.current) {
-                    isPlayingRef.current = true;
-                    setIsPlaying(true);
+                isPlayingRef.current = true;
+                setIsPlaying(true);
+                // enqueue() already marks the queue as playing, so track the first audible chunk separately
+                if (!startedRef.current) {
+                    startedRef.current = true;
                     onPlaybackStart?.();
                 }
             })
@@ -130,6 +134,7 @@ const AudioPlayer = forwardRef(function AudioPlayer({ onPlaybackEnd, onPlaybackS
         queueRef.current.forEach(url => URL.revokeObjectURL(url));
         queueRef.current = [];
         isPlayingRef.current = false;
+        startedRef.current = false;
         setIsPlaying(false);
     }, []);
 

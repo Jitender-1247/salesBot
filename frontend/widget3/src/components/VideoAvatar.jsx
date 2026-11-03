@@ -5,7 +5,7 @@ import {
     useTracks,
     useLocalParticipant,
 } from '@livekit/components-react';
-import { Track } from 'livekit-client';
+import { Track, ParticipantEvent } from 'livekit-client';
 import '@livekit/components-styles';
 
 const DEFAULT_AVATAR_IMG = '/widget3/alex-avatar.png';
@@ -46,7 +46,7 @@ function MicController({ enabled }) {
     return null;
 }
 
-function LiveTrackPlayer({ speaking, onReady, avatarImg, agentName, humanName }) {
+function LiveTrackPlayer({ speaking, onReady, avatarImg, agentName, humanName, onAvatarSpeaking }) {
     const videoRef = useRef(null);
     const readyReported = useRef(false);
     const [hasVideoTrack, setHasVideoTrack] = useState(false);
@@ -64,6 +64,15 @@ function LiveTrackPlayer({ speaking, onReady, avatarImg, agentName, humanName })
     const remoteTracks = tracks.filter(t => !t.participant.isLocal && t.publication?.track);
     const remoteTrack = remoteTracks.find(t => isHuman(t.participant)) || remoteTracks.find(t => !isHuman(t.participant));
     const showingHuman = isHuman(remoteTrack?.participant);
+
+    // Tell the chat when the avatar's voice actually starts, so captions appear with the speech
+    const avatarParticipant = remoteTracks.find(t => !isHuman(t.participant))?.participant;
+    useEffect(() => {
+        if (!avatarParticipant || !onAvatarSpeaking) return;
+        const onChange = (isSpeaking) => onAvatarSpeaking(isSpeaking);
+        avatarParticipant.on(ParticipantEvent.IsSpeakingChanged, onChange);
+        return () => { avatarParticipant.off(ParticipantEvent.IsSpeakingChanged, onChange); };
+    }, [avatarParticipant, onAvatarSpeaking]);
 
     useEffect(() => {
         const timeout = setTimeout(() => {
@@ -123,7 +132,8 @@ export default function VideoAvatar({
     avatarImg = DEFAULT_AVATAR_IMG,
     agentName = 'Sofia',
     humanName = '',
-    micEnabled = false
+    micEnabled = false,
+    onAvatarSpeaking
 }) {
     const roomOptions = useMemo(() => ({
         adaptiveStream: false,
@@ -173,6 +183,7 @@ export default function VideoAvatar({
                 avatarImg={avatarImg}
                 agentName={agentName}
                 humanName={humanName}
+                onAvatarSpeaking={onAvatarSpeaking}
             />
         </LiveKitRoom>
     );
