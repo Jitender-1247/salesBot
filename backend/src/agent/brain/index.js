@@ -82,7 +82,7 @@ export const navigationTools = [
                 properties: {
                     selector: { type: 'string', description: 'CSS selector of element to click' },
                     description: { type: 'string', description: 'What this element does' },
-                    dataZyxId: { type: 'number', description: 'The data-zyx-id number of the element as listed in INTERACTABLE ELEMENTS. Prefer this over selector.' }
+                    dataZyxId: { type: 'string', description: 'The [N] id of the element exactly as listed in INTERACTABLE ELEMENTS, e.g. "12" or "f1_3" (inside a frame). Prefer this over selector.' }
                 },
                 required: ['selector', 'description']
             }
@@ -140,10 +140,11 @@ export const navigationTools = [
             parameters: {
                 type: 'object',
                 properties: {
-                    selector: { type: 'string', description: 'CSS selector of input field' },
+                    dataZyxId: { type: 'string', description: 'The [N] id of the input as listed in INTERACTABLE ELEMENTS. Prefer this over selector.' },
+                    selector: { type: 'string', description: 'CSS selector or placeholder text of the input (fallback)' },
                     text: { type: 'string', description: 'Text to type' }
                 },
-                required: ['selector', 'text']
+                required: ['text']
             }
         }
     }
@@ -188,7 +189,9 @@ function matchKnownPage(raw, pages, currentUrl) {
     if (!target) return null;
     const exact = pages.find(p => p.url === target);
     if (exact) return exact;
-    const key = urlKey(target, currentUrl || pages[0]?.url);
+    // "www.acme.com/pricing" has no scheme and would otherwise resolve as a relative path
+    const absolute = /^[\w-]+(\.[\w-]+)+(\/|$)/.test(target) ? `https://${target}` : target;
+    const key = urlKey(absolute, currentUrl || pages[0]?.url);
     const byPath = key && pages.find(p => urlKey(p.url) === key);
     if (byPath) return byPath;
     const name = target.toLowerCase();
@@ -391,7 +394,7 @@ ${currentPageSection}
 ═══ OUTPUT FORMAT (STRICT RULES) ═══
 
 1. ALWAYS start with a short spoken sentence (1-3 sentences max) to explain to the user what you are doing or showing.
-2. FUNCTION CALLING: You may call up to 4 tools in one turn. Execute multi-step navigation like: navigate_to → click_element (tab) all in one response.
+2. FUNCTION CALLING: You may call up to 4 tools in one turn for steps on THIS page (e.g. type_text then click_element "Search"). Element ids only exist for the current page: after navigate_to (or a click that opens a new page) stop; you will get the new page's elements in the next step.
 3. After function calls execute, you will receive a system message with what changed. Use that to continue.
 4. When clicking, always use dataZyxId matching the [N] id number from INTERACTABLE ELEMENTS list. This is the most reliable way to click.
 5. If no browser interaction is required, just provide your spoken response.
@@ -473,14 +476,33 @@ export async function think(transcript, language, knowledgeMap, conversationHist
             }
             console.log('-------------------------------------------\n');
 
-            const toolCalls = rawToolCalls.map(tc => ({
-                id: tc.id,
-                type: tc.type || 'function',
-                function: {
-                    name: tc.function.name,
-                    arguments: tc.function.arguments
+            const toolCalls = [];
+            for (const tc of rawToolCalls) {
+                let args = tc.function.arguments;
+                // Same URL snapping as the text-tag path: small LLM typos still land on the real page
+                if (tc.function.name === 'navigate_to') {
+                    try {
+                        const parsed = typeof args === 'string' ? JSON.parse(args) : { ...args };
+                        const pages = knowledgeMap.pages || [];
+                        const page = matchKnownPage(parsed.url, pages, pageContext?.url)
+                            || matchKnownPage(parsed.pageName, pages, pageContext?.url);
+                        if (page) {
+                            parsed.url = page.url;
+                            parsed.pageName = parsed.pageName || page.name;
+                        }
+                        if (pageContext && urlKey(pageContext.url) === urlKey(parsed.url, pageContext.url)) {
+                            console.log(`⚠️ Skipping duplicate navigation to current page: ${parsed.url}`);
+                            continue;
+                        }
+                        args = JSON.stringify(parsed);
+                    } catch { /* leave as-is; the navigator validates the URL */ }
                 }
-            }));
+                toolCalls.push({
+                    id: tc.id,
+                    type: tc.type || 'function',
+                    function: { name: tc.function.name, arguments: args }
+                });
+            }
 
             const finish_reason = toolCalls.length > 0 ? 'tool_calls' : (choice?.finish_reason || 'stop');
 

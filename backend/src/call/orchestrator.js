@@ -11,6 +11,9 @@ import { analyzeCallOutcome } from '../agent/sentiment.js';
 import { isZohoConfigured, upsertLead } from '../integrations/zoho.js';
 import Lead from '../models/Lead.js';
 import dotenv from 'dotenv';
+
+// Think → act → check rounds per user turn: the first plus up to 2 follow-ups when a plan was cut short
+const MAX_FOLLOW_UP_STEPS = 3;
 dotenv.config();
 
 export class CallOrchestrator {
@@ -322,7 +325,7 @@ export class CallOrchestrator {
                 const pageContext = await this.navigator.getPageContext();
 
                 const decision = await think(
-                    stepCount === 1 ? transcript : '(Continue — the previous action completed successfully. Look at CURRENT PAGE STATE to see where you are now.)',
+                    stepCount === 1 ? transcript : '(Continue: read the action results above and CURRENT PAGE STATE, then finish what the user asked. If it is already done, confirm it in one short sentence and call no tools.)',
                     this.currentLanguage,
                     this.product.knowledgeMap,
                     this.conversationHistory,
@@ -349,9 +352,11 @@ export class CallOrchestrator {
                 }
 
                 // Now execute the browser action after speaking
+                let needsFollowUp = false;
                 if (decision.finish_reason === 'tool_calls' && decision.message.tool_calls) {
                     const outcomes = [];
-                    for (const toolCall of decision.message.tool_calls) {
+                    const calls = decision.message.tool_calls;
+                    for (const [callIdx, toolCall] of calls.entries()) {
                         const toolName = toolCall.function.name;
                         const toolArgs = typeof toolCall.function.arguments === 'string'
                             ? JSON.parse(toolCall.function.arguments)
@@ -378,20 +383,26 @@ export class CallOrchestrator {
                             args: toolArgs,
                             result: fullResult
                         });
-                        console.log(`✅ Action outcome:`, fullResult);
+                        console.log(`${result?.ok === false ? '❌' : '✅'} Action outcome:`, fullResult);
 
                         if (result?.ok === false) {
-                            // Tell the LLM the browser did NOT move, so its next turn matches the screen
-                            this.conversationHistory.push({
-                                role: 'system',
-                                content: `[System: Your last action (${toolName}) did not happen: ${result.error}. The browser is still on ${this.navigator.getCurrentUrl()}. Only use page URLs from the knowledge map.]`
-                            });
-                            continue;
+                            // The rest of the batch was planned on a screen that didn't happen: re-plan instead
+                            needsFollowUp = true;
+                            break;
                         }
                         this.io.to(this.callId).emit('navigation-event', {
                             tool: toolName,
                             args: toolArgs
                         });
+
+                        // A new page invalidates the element numbers the remaining calls refer to,
+                        // so stop here and let the agent pick targets from the fresh page.
+                        const remaining = calls.length - callIdx - 1;
+                        if (remaining > 0 && (fullResult.urlChanged || fullResult.dialogVisible)) {
+                            console.log(`↪️ Page changed after ${toolName}; re-reading the page before the next ${remaining} action(s).`);
+                            needsFollowUp = true;
+                            break;
+                        }
                     }
 
                     if (outcomes.length > 0) {
@@ -399,10 +410,15 @@ export class CallOrchestrator {
                         if (feedback) {
                             this.conversationHistory.push({
                                 role: 'system',
-                                content: feedback
+                                content: `${feedback}\n[System: The browser is now on ${this.navigator.getCurrentUrl()}.${needsFollowUp ? ' Some planned steps were not run yet; use the CURRENT PAGE STATE element numbers to continue.' : ''}]`
                             });
                         }
                     }
+                }
+
+                // Unfinished or failed plan: give the agent another look at the page (bounded)
+                if (needsFollowUp && stepCount < MAX_FOLLOW_UP_STEPS && !(this.interruptRequested && interruptId < this.speechSequence)) {
+                    continue;
                 }
 
                 // Turn complete: once the agent has spoken and executed actions, wait for user response

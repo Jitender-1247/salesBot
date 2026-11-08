@@ -481,98 +481,90 @@ export class Navigator {
                     }
                 };
 
-                // Traverse DOM roots (including shadow DOM and iframes)
-                const processRoot = (root, framePrefix = '') => {
-                    if (elements.length >= MAX_ELEMENTS) return;
-
+                // Roots to scan: main document, open shadow roots, same-origin iframes (cross-origin ones throw and are skipped)
+                const roots = [];
+                const collectRoots = (root, framePrefix) => {
+                    roots.push({ root, framePrefix });
                     try {
-                        const candidates = Array.from(root.querySelectorAll(interactableSelectors));
-                        for (const el of candidates) {
-                            if (elements.length >= MAX_ELEMENTS) break;
-                            if (!isVisible(el)) continue;
-
-                            let accessibleName = computeAccessibleName(el);
-                            const testId = el.getAttribute('data-test') || el.getAttribute('data-testid') || '';
-                            const elId = el.id || '';
-                            const href = el.getAttribute('href') || '';
-                            const tag = el.tagName.toLowerCase();
-                            const type = el.getAttribute('type') || '';
-                            const name = el.getAttribute('name') || '';
-
-                            // Skip elements with no identifying feature
-                            if (!accessibleName && !testId && !elId && !href && !name && tag !== 'input') continue;
-                            if (accessibleName.length > 60) accessibleName = accessibleName.substring(0, 57) + '...';
-
-                            const id = framePrefix ? `${framePrefix}${nextId++}` : nextId++;
-
-                            // 1. Tag element with unique data-zyx-id attribute directly on DOM element
-                            try {
-                                el.setAttribute('data-zyx-id', String(id));
-                            } catch {}
-
-                            // 2. Selector preference: [data-zyx-id] first, then #id, then [name]
-                            let selector = `[data-zyx-id="${id}"]`;
-                            if (!selector) {
-                                if (elId) selector = `#${elId}`;
-                                else if (name) selector = `${tag}[name="${name}"]`;
-                            }
-
-                            const role = computeRole(el, tag);
-
-                            const rect = el.getBoundingClientRect();
-                            const inViewport = rect.top < (window.innerHeight || document.documentElement.clientHeight) &&
-                                              rect.bottom > 0 &&
-                                              rect.left < (window.innerWidth || document.documentElement.clientWidth) &&
-                                              rect.right > 0;
-
-                            elements.push({
-                                id,
-                                tag,
-                                role,
-                                type,
-                                accessibleName,
-                                text: accessibleName || `[${tag}]`,
-                                testId,
-                                selector,
-                                href: tag === 'a' ? href : '',
-                                visible: inViewport
-                            });
-                        }
-                    } catch {}
-
-                    // 4. Shadow DOM roots traversal (use shadowRoot.querySelectorAll, skip errors silently)
-                    try {
-                        const allNodes = root.querySelectorAll('*');
-                        for (const node of allNodes) {
-                            if (elements.length >= MAX_ELEMENTS) break;
-                            try {
-                                if (node.shadowRoot) {
-                                    processRoot(node.shadowRoot, framePrefix);
-                                }
-                            } catch {}
+                        for (const node of root.querySelectorAll('*')) {
+                            if (node.shadowRoot) collectRoots(node.shadowRoot, framePrefix);
                         }
                     } catch {}
                 };
+                collectRoots(document, '');
+                Array.from(document.querySelectorAll('iframe')).forEach((iframe, fIdx) => {
+                    try {
+                        const frameDoc = iframe.contentDocument || iframe.contentWindow?.document;
+                        if (frameDoc) collectRoots(frameDoc, `f${fIdx + 1}_`);
+                    } catch {}
+                });
 
-                // Process main document
-                processRoot(document, '');
+                // Markers from an earlier read must go: after a re-render the same number could sit on a
+                // different element, and a stale duplicate would make [data-zyx-id="N"] hit the wrong one.
+                for (const { root } of roots) {
+                    try { root.querySelectorAll('[data-zyx-id]').forEach(el => el.removeAttribute('data-zyx-id')); } catch {}
+                }
 
-                // 3. Traverses iframes (same-origin only, catch cross-origin errors silently) - prefix their id values
-                try {
-                    const iframes = Array.from(document.querySelectorAll('iframe'));
-                    for (let fIdx = 0; fIdx < iframes.length; fIdx++) {
-                        if (elements.length >= MAX_ELEMENTS) break;
-                        try {
-                            const iframe = iframes[fIdx];
-                            const frameDoc = iframe.contentDocument || iframe.contentWindow?.document;
-                            if (frameDoc) {
-                                processRoot(frameDoc, `f${fIdx + 1}_`);
-                            }
-                        } catch {
-                            // Cross-origin access silently ignored
-                        }
+                // Pass 1: every visible, identifiable candidate (in DOM order)
+                const candidates = [];
+                for (const { root, framePrefix } of roots) {
+                    let nodes = [];
+                    try { nodes = Array.from(root.querySelectorAll(interactableSelectors)); } catch {}
+                    for (const el of nodes) {
+                        if (candidates.length >= 600) break;
+                        if (!isVisible(el)) continue;
+
+                        let accessibleName = computeAccessibleName(el);
+                        const testId = el.getAttribute('data-test') || el.getAttribute('data-testid') || '';
+                        const elId = el.id || '';
+                        const href = el.getAttribute('href') || '';
+                        const tag = el.tagName.toLowerCase();
+                        const name = el.getAttribute('name') || '';
+
+                        // Skip elements with no identifying feature
+                        if (!accessibleName && !testId && !elId && !href && !name && tag !== 'input') continue;
+                        if (accessibleName.length > 60) accessibleName = accessibleName.substring(0, 57) + '...';
+
+                        const rect = el.getBoundingClientRect();
+                        const inViewport = rect.top < (window.innerHeight || document.documentElement.clientHeight) &&
+                                          rect.bottom > 0 &&
+                                          rect.left < (window.innerWidth || document.documentElement.clientWidth) &&
+                                          rect.right > 0;
+
+                        // Relevance: an open dialog first, then what's on screen and in the main content;
+                        // site chrome (menus, header, footer) last, so it can't crowd out the page itself.
+                        let score = 0;
+                        if (el.closest('[role="dialog"], [role="alertdialog"], dialog[open]')) score += 6;
+                        if (inViewport) score += 3;
+                        if (el.closest('main, article, [role="main"]')) score += 2;
+                        if (el.closest('nav, header, footer, [role="navigation"], [role="banner"], [role="contentinfo"]')) score -= 2;
+
+                        candidates.push({ el, framePrefix, accessibleName, testId, href, tag, inViewport, score, order: candidates.length });
                     }
-                } catch {}
+                }
+
+                // Pass 2: keep the most relevant, list them in page order, and mark only those
+                const chosen = candidates
+                    .sort((a, b) => b.score - a.score || a.order - b.order)
+                    .slice(0, MAX_ELEMENTS)
+                    .sort((a, b) => a.order - b.order);
+
+                for (const c of chosen) {
+                    const id = c.framePrefix ? `${c.framePrefix}${nextId++}` : nextId++;
+                    try { c.el.setAttribute('data-zyx-id', String(id)); } catch {}
+                    elements.push({
+                        id,
+                        tag: c.tag,
+                        role: computeRole(c.el, c.tag),
+                        type: c.el.getAttribute('type') || '',
+                        accessibleName: c.accessibleName,
+                        text: c.accessibleName || `[${c.tag}]`,
+                        testId: c.testId,
+                        selector: `[data-zyx-id="${id}"]`,
+                        href: c.tag === 'a' ? c.href : '',
+                        visible: c.inViewport
+                    });
+                }
 
                 return { title, url, headings, outline, elements };
             });
@@ -695,20 +687,33 @@ export class Navigator {
                 }
 
                 case 'type_text': {
-                    console.log(`⌨️ Typing into: ${toolArgs.selector}`);
-                    try {
-                        const loc = this.page.locator(toolArgs.selector).first();
-                        await loc.fill(toolArgs.text, { timeout: 5000 });
-                    } catch {
-                        // Try by placeholder
-                        try {
-                            const loc = this.page.getByPlaceholder(toolArgs.selector).first();
-                            await loc.fill(toolArgs.text, { timeout: 3000 });
-                        } catch (e) {
-                            console.log(`  ❌ Type failed: ${e.message}`);
-                        }
+                    console.log(`⌨️ Typing into: ${toolArgs.dataZyxId ? `#${toolArgs.dataZyxId}` : toolArgs.selector}`);
+                    const attempts = [];
+                    if (toolArgs.dataZyxId !== undefined && toolArgs.dataZyxId !== null && toolArgs.dataZyxId !== '') {
+                        const zyx = `[data-zyx-id="${toolArgs.dataZyxId}"]`;
+                        attempts.push(() => this.page.locator(zyx).first());
+                        for (const frame of this.page.frames()) attempts.push(() => frame.locator(zyx).first());
                     }
-                    await this.page.waitForTimeout(500);
+                    if (toolArgs.selector) {
+                        attempts.push(() => this.page.locator(toolArgs.selector).first());
+                        attempts.push(() => this.page.getByPlaceholder(toolArgs.selector).first());
+                    }
+                    let typed = false;
+                    for (const makeLoc of attempts) {
+                        try {
+                            const loc = makeLoc();
+                            if (!(await loc.count().catch(() => 0))) continue;
+                            await loc.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {});
+                            await loc.fill(toolArgs.text, { timeout: 3000 });
+                            typed = true;
+                            break;
+                        } catch { /* next strategy */ }
+                    }
+                    if (!typed) {
+                        console.log('  ❌ Type failed: input not found or not editable');
+                        return { ok: false, error: 'Input not found or not editable' };
+                    }
+                    await this.page.waitForTimeout(300);
                     break;
                 }
 
