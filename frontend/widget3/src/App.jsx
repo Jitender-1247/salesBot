@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import ChatView from './components/ChatView';
+import { unlockAudio, audioLocked } from './audio/PcmStreamPlayer';
 
 const BACKEND_URL = import.meta.env.PROD
     ? ''
@@ -8,25 +9,159 @@ const BACKEND_URL = import.meta.env.PROD
 const AVATAR_IMG = '/widget3/alex-avatar.png';
 const FALLBACK_AVATAR_IMG = '/alex-avatar.png';
 
+const DEFAULT_PERSONA = { name: 'Sofia', role: 'AI Sales Specialist', posterImage: '', accentColor: '' };
+
+// Embedded via widget3.js: the host page owns nudge triggers and sizes our iframe
+const IS_EMBEDDED = new URLSearchParams(window.location.search).get('embed') === '1' && window.parent !== window;
+
+function postToHost(message) {
+    if (IS_EMBEDDED) window.parent.postMessage({ source: 'ai-video-agent', ...message }, '*');
+}
+
+// When the agent opens another page of the merchant's site, this iframe reloads with it.
+// The running call is kept here and resumed (the backend holds it ~30s for a reconnect).
+const SAVED_CALL_MAX_AGE_MS = 25000;
+const savedCallKey = (pid) => `ai-video-agent-call:${pid}`;
+
+function loadSavedCall(pid) {
+    try {
+        const saved = JSON.parse(sessionStorage.getItem(savedCallKey(pid)) || 'null');
+        if (saved?.callData?.callId && Date.now() - saved.savedAt < SAVED_CALL_MAX_AGE_MS) return saved;
+        sessionStorage.removeItem(savedCallKey(pid));
+    } catch { /* storage blocked: no resume */ }
+    return null;
+}
+
+function saveCall(pid, callData, userForm) {
+    try {
+        sessionStorage.setItem(savedCallKey(pid), JSON.stringify({ callData, userForm, savedAt: Date.now() }));
+    } catch { /* storage blocked */ }
+}
+
+function clearSavedCall(pid) {
+    try { sessionStorage.removeItem(savedCallKey(pid)); } catch { /* storage blocked */ }
+}
+
 export default function App() {
     // URL param for product ID
     const urlParams = new URLSearchParams(window.location.search);
     const productId = urlParams.get('pid') || 'test-product';
+    // A call carried over from the previous page of the merchant's site (on-site guidance)
+    const [restored] = useState(() => (IS_EMBEDDED ? loadSavedCall(productId) : null));
+
+    // Persona, nudges and handover settings from the dashboard
+    const [config, setConfig] = useState(null);
+    const persona = config?.persona || DEFAULT_PERSONA;
+    const avatarImg = persona.posterImage || AVATAR_IMG;
 
     // Widget states: 'bubble' (collapsed), 'modal' (expanded)
     const [isExpanded, setIsExpanded] = useState(false);
     const [bubbleDismissed, setBubbleDismissed] = useState(false);
+    const [nudgeMessage, setNudgeMessage] = useState('');
 
     // Screen inside widget: 'landing', 'loading', 'calling', 'end', 'queued'
-    const [screen, setScreen] = useState('landing');
+    const [screen, setScreen] = useState(restored ? 'calling' : 'landing');
     const [socket, setSocket] = useState(null);
-    const [callData, setCallData] = useState(null);
+    const socketRef = useRef(null);
+    const [callData, setCallData] = useState(restored?.callData || null);
     // Latest session, readable from socket handlers (which are registered once)
-    const callDataRef = useRef(null);
+    const callDataRef = useRef(restored?.callData || null);
     useEffect(() => { callDataRef.current = callData; }, [callData]);
     const [errorMessage, setErrorMessage] = useState('');
-    const [userForm, setUserForm] = useState({ name: '', email: '' });
+    const [userForm, setUserForm] = useState(restored?.userForm || { name: '', email: '' });
+
+    // On-site guidance: latest outline of the visitor's page, what the agent is saying while docked
+    const hostContextRef = useRef(null);
+    const [guideText, setGuideText] = useState(restored ? 'I\'m still here with you.' : '');
+    const [voiceLocked, setVoiceLocked] = useState(false);
     const [queueInfo, setQueueInfo] = useState(null);
+
+    // Load widget config
+    useEffect(() => {
+        fetch(`${BACKEND_URL}/api/embed/${encodeURIComponent(productId)}`)
+            .then(r => (r.ok ? r.json() : null))
+            .then(cfg => { if (cfg) setConfig(cfg); })
+            .catch(() => { /* defaults are fine */ });
+    }, [productId]);
+
+    // Brand accent color
+    useEffect(() => {
+        if (!persona.accentColor) return;
+        const root = document.documentElement.style;
+        root.setProperty('--primary-violet', persona.accentColor);
+        root.setProperty('--primary-purple', persona.accentColor);
+    }, [persona.accentColor]);
+
+    // Tell the host page how big our iframe should be
+    const showTooltip = !bubbleDismissed;
+    useEffect(() => {
+        postToHost({ type: 'state', state: isExpanded ? 'open' : showTooltip ? 'bubble' : 'compact' });
+    }, [isExpanded, showTooltip]);
+
+    // Proactive nudges: from the host page when embedded, or a simple timer when standalone
+    useEffect(() => {
+        const applyNudge = ({ message, autoOpen }) => {
+            if (!message) return;
+            setNudgeMessage(message);
+            setBubbleDismissed(false);
+            if (autoOpen) setIsExpanded(true);
+        };
+
+        if (IS_EMBEDDED) {
+            const onMessage = (e) => {
+                if (e.source !== window.parent || e.data?.source !== 'ai-video-agent-host') return;
+                const { type } = e.data;
+                if (type === 'nudge' && !callDataRef.current) applyNudge(e.data);
+                if (type === 'page-context') {
+                    hostContextRef.current = e.data.context;
+                    const active = callDataRef.current;
+                    if (active?.callId) socketRef.current?.emit('host-page-context', { callId: active.callId, context: e.data.context });
+                }
+                if (type === 'navigating' && callDataRef.current) {
+                    saveCall(productId, callDataRef.current, userFormRef.current);
+                }
+            };
+            window.addEventListener('message', onMessage);
+            postToHost({ type: 'ready' });
+            return () => window.removeEventListener('message', onMessage);
+        }
+
+        const n = config?.nudges;
+        if (!n?.enabled) return;
+        const t = setTimeout(() => applyNudge(n), (n.delaySeconds || 0) * 1000);
+        return () => clearTimeout(t);
+    }, [config]);
+
+    const userFormRef = useRef(userForm);
+    useEffect(() => { userFormRef.current = userForm; }, [userForm]);
+
+    // Keep the running call saved (fresh timestamp when this page goes away) so it survives a page change
+    useEffect(() => {
+        if (!IS_EMBEDDED) return;
+        if (screen === 'calling' && callData?.callId) {
+            saveCall(productId, callData, userForm);
+            const onHide = () => saveCall(productId, callDataRef.current, userFormRef.current);
+            window.addEventListener('pagehide', onHide);
+            return () => window.removeEventListener('pagehide', onHide);
+        }
+        if (screen === 'end' || screen === 'landing') clearSavedCall(productId);
+    }, [screen, callData, userForm, productId]);
+
+    // A call started (or resumed): give the agent the visitor's current page
+    useEffect(() => {
+        if (!IS_EMBEDDED || !callData?.callId || !socket) return;
+        if (hostContextRef.current) socket.emit('host-page-context', { callId: callData.callId, context: hostContextRef.current });
+        postToHost({ type: 'request-page-context' });
+    }, [callData?.callId, socket]);
+
+    // While docked mid-call, show whether the browser is holding the voice back (common right after a page change)
+    useEffect(() => {
+        if (screen !== 'calling') return;
+        const t = setInterval(() => setVoiceLocked(audioLocked()), 1000);
+        const unlock = () => { unlockAudio(); setVoiceLocked(audioLocked()); };
+        window.addEventListener('pointerdown', unlock);
+        return () => { clearInterval(t); window.removeEventListener('pointerdown', unlock); };
+    }, [screen]);
 
     // Initialize socket connection
     useEffect(() => {
@@ -34,6 +169,19 @@ export default function App() {
             transports: ['websocket', 'polling']
         });
         setSocket(s);
+        socketRef.current = s;
+
+        // On-site guidance: dock to the bubble so the visitor sees their page, then let the host page act
+        s.on('host-action', (action) => {
+            if (!IS_EMBEDDED) return;
+            setIsExpanded(false);
+            if (action.kind === 'open_page') saveCall(productId, callDataRef.current, userFormRef.current);
+            postToHost({ type: 'host-action', action });
+        });
+
+        s.on('agent-speaking', (data) => {
+            if (data?.speaking && data.text) setGuideText(data.text);
+        });
 
         s.on('connect', () => {
             console.log('✅ [Widget3] Socket connected');
@@ -48,6 +196,7 @@ export default function App() {
 
         s.on('session-expired', () => {
             callDataRef.current = null;
+            clearSavedCall(productId);
             setScreen('end');
         });
 
@@ -91,11 +240,13 @@ export default function App() {
 
         setErrorMessage('');
         setScreen('loading');
+        unlockAudio(); // inside the click, so the agent's voice is allowed to play
 
         socket.emit('start-chat', {
             productId,
             prospectName: userForm.name,
-            prospectEmail: userForm.email
+            prospectEmail: userForm.email,
+            audioFormats: ['pcm16', 'mp3']
         });
     };
 
@@ -107,6 +258,14 @@ export default function App() {
         setScreen('end');
     };
 
+    const avatarImgEl = (
+        <img
+            src={avatarImg}
+            alt={persona.name}
+            onError={(e) => { e.target.src = FALLBACK_AVATAR_IMG; }}
+        />
+    );
+
     return (
         <div className="widget3-root">
             {/* ── 1. Floating Video Bubble (SaleAssist Style Idle Presence) ── */}
@@ -114,7 +273,7 @@ export default function App() {
                 className={`floating-video-bubble-container ${isExpanded ? 'hidden' : ''}`}
                 style={{ display: isExpanded ? 'none' : 'flex' }}
             >
-                {!bubbleDismissed && (
+                {showTooltip && (
                     <div className="bubble-tooltip-pill animate-fade-in">
                         <button
                             type="button"
@@ -128,8 +287,34 @@ export default function App() {
                             ✕
                         </button>
                         <div className="tooltip-content" onClick={() => setIsExpanded(true)}>
-                            <div className="tooltip-title">Talk to Sofia</div>
-                            <div className="tooltip-sub">AI Product Specialist • 1-on-1 Video</div>
+                            {screen === 'calling' ? (
+                                <>
+                                    <div className="tooltip-title">
+                                        <span className="live-dot" /> {persona.name} is guiding you
+                                    </div>
+                                    {guideText && <div className="tooltip-nudge">“{guideText}”</div>}
+                                    {voiceLocked && (
+                                        <button
+                                            type="button"
+                                            className="tooltip-resume-audio"
+                                            onClick={(e) => { e.stopPropagation(); unlockAudio(); setVoiceLocked(audioLocked()); }}
+                                        >
+                                            🔊 Tap to resume voice
+                                        </button>
+                                    )}
+                                    <div className="tooltip-sub">Tap to open the video chat</div>
+                                </>
+                            ) : nudgeMessage ? (
+                                <>
+                                    <div className="tooltip-title">{persona.name}</div>
+                                    <div className="tooltip-nudge">{nudgeMessage}</div>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="tooltip-title">Talk to {persona.name}</div>
+                                    <div className="tooltip-sub">{persona.role} • 1-on-1 Video</div>
+                                </>
+                            )}
                         </div>
                     </div>
                 )}
@@ -142,11 +327,7 @@ export default function App() {
                 >
                     <div className="bubble-pulse-halo" />
                     <div className="bubble-avatar-frame">
-                        <img
-                            src={AVATAR_IMG}
-                            alt="Sofia"
-                            onError={(e) => { e.target.src = FALLBACK_AVATAR_IMG; }}
-                        />
+                        {avatarImgEl}
                     </div>
                     <span className="bubble-online-badge">
                         <span className="live-dot" /> Live
@@ -155,8 +336,9 @@ export default function App() {
             </div>
 
             {/* ── 2. Expanded Video Consultation Container ── */}
-            {isExpanded && (
-                <div className="modal-backdrop animate-fade-in">
+            {/* Stays mounted while minimized mid-call so the LiveKit room (avatar / specialist) keeps running */}
+            {(isExpanded || screen === 'calling') && (
+                <div className="modal-backdrop animate-fade-in" style={isExpanded ? undefined : { display: 'none' }}>
                     <div className="video-consultation-modal animate-scale-up">
 
                         {/* ── Screen A: Landing Form ── */}
@@ -175,21 +357,18 @@ export default function App() {
                                     <div className="hero-avatar-halo-frame">
                                         <div className="hero-avatar-ambient" />
                                         <div className="hero-avatar-img-circle">
-                                            <img
-                                                src={AVATAR_IMG}
-                                                alt="Sofia"
-                                                onError={(e) => { e.target.src = FALLBACK_AVATAR_IMG; }}
-                                            />
+                                            {avatarImgEl}
                                         </div>
                                         <div className="hero-live-badge">
                                             <span className="live-dot" /> 1-on-1 Video Agent
                                         </div>
                                     </div>
 
-                                    <h1 className="hero-title">Meet Sofia</h1>
-                                    <p className="hero-subtitle">Your Dedicated AI Sales & Solutions Specialist</p>
+                                    <h1 className="hero-title">Meet {persona.name}</h1>
+                                    <p className="hero-subtitle">Your {persona.role}{config?.name ? ` for ${config.name}` : ''}</p>
                                     <p className="hero-desc">
-                                        Ask anything about features, integrations, pricing, or custom enterprise solutions over a real-time 1-on-1 voice conversation.
+                                        Ask anything about features, products, pricing, or the right fit for you over a real-time 1-on-1 voice conversation.
+                                        {config?.handover?.humanAvailable && ' A human specialist is online if you need one.'}
                                     </p>
                                 </div>
 
@@ -246,18 +425,13 @@ export default function App() {
                                 <div className="loading-avatar-stage">
                                     <div className="loading-avatar-pulsing-rings" />
                                     <div className="loading-avatar-circle">
-                                        {/* EXACT SAME AVATAR IMAGE HERE */}
-                                        <img
-                                            src={AVATAR_IMG}
-                                            alt="Sofia"
-                                            onError={(e) => { e.target.src = FALLBACK_AVATAR_IMG; }}
-                                        />
+                                        {avatarImgEl}
                                     </div>
                                     <div className="loading-spinner-ring" />
                                 </div>
 
-                                <h2 className="loading-title">Connecting with Sofia</h2>
-                                <p className="loading-desc">Setting up your private 1-on-1 video sales session...</p>
+                                <h2 className="loading-title">Connecting with {persona.name}</h2>
+                                <p className="loading-desc">Setting up your private 1-on-1 video session...</p>
 
                                 <div className="loading-milestones">
                                     <div className="milestone-pill active">
@@ -277,6 +451,8 @@ export default function App() {
                             <ChatView
                                 callData={callData}
                                 socket={socket}
+                                persona={callData.persona || persona}
+                                avatarImg={callData.persona?.posterImage || avatarImg}
                                 onEnd={handleEndChat}
                                 onMinimize={() => setIsExpanded(false)}
                                 knowledgeMap={callData?.knowledgeMap}
@@ -287,11 +463,7 @@ export default function App() {
                         {screen === 'queued' && queueInfo && (
                             <div className="queued-card-view">
                                 <div className="queue-avatar-circle">
-                                    <img
-                                        src={AVATAR_IMG}
-                                        alt="Sofia"
-                                        onError={(e) => { e.target.src = FALLBACK_AVATAR_IMG; }}
-                                    />
+                                    {avatarImgEl}
                                 </div>
                                 <h2>You're in queue</h2>
                                 <p className="queue-pos">Position #{queueInfo.position}</p>
@@ -306,15 +478,11 @@ export default function App() {
                         {screen === 'end' && (
                             <div className="end-card-view animate-fade-in">
                                 <div className="end-avatar-circle">
-                                    <img
-                                        src={AVATAR_IMG}
-                                        alt="Sofia"
-                                        onError={(e) => { e.target.src = FALLBACK_AVATAR_IMG; }}
-                                    />
+                                    {avatarImgEl}
                                 </div>
                                 <h2>Thank You!</h2>
                                 <p className="end-desc">
-                                    Sofia has noted your questions and insights. Our team will follow up with you at <strong>{userForm.email || 'your email'}</strong>.
+                                    {persona.name} has noted your questions and insights. Our team will follow up with you at <strong>{userForm.email || 'your email'}</strong>.
                                 </p>
                                 <button
                                     type="button"

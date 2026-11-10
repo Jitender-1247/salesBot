@@ -2,9 +2,10 @@
 Keyframe Avatar Agent — LiveKit Python Sidecar
 ==============================================
 Architecture:
-  1. Agent joins LiveKit room.
-  2. Node.js sends a data message: { "type": "speak", "text": "..." }
-  3. This agent fetches MP3 audio (ElevenLabs / OpenAI / edge-tts).
+  1. Agent joins LiveKit room. Dispatch metadata picks the persona (face) and voice:
+       { "personaSlug": "...", "personaId": "...", "voice": { "provider": "deepgram", "id": "aura-2-thalia-en" } }
+  2. Node.js sends a data message: { "type": "speak", "text": "...", "voice": {...} }  or  { "type": "stop" }
+  3. This agent fetches MP3 audio (persona's provider first, then Deepgram / ElevenLabs / OpenAI / edge-tts).
   4. MP3 is decoded to PCM using miniaudio and chunked into AudioFrames.
   5. AudioFrames are pushed to Keyframe's DataStreamAudioOutput for lip-sync.
   6. The frontend receives video & audio streams live from Keyframe via WebRTC.
@@ -45,6 +46,8 @@ if kf_key:
     os.environ['KEYFRAMELABS_API_KEY'] = kf_key
     os.environ['LIVEKIT_KEYFRAME_API_KEY'] = kf_key
 
+DEEPGRAM_API_KEY    = os.getenv('DEEPGRAM_API_KEY', '')
+DEEPGRAM_DEFAULT_MODEL = 'aura-2-thalia-en'
 ELEVENLABS_API_KEY  = os.getenv('ELEVENLABS_API_KEY', '')
 ELEVENLABS_VOICE_ID = os.getenv('ELEVENLABS_VOICE_ID', 'EXAVITQu4vr4xnSDxMaL') # Bella
 OPENAI_API_KEY      = os.getenv('OPENAI_API_KEY', '')
@@ -57,57 +60,102 @@ KEYFRAME_PERSONA_SLUG = os.getenv('KEYFRAME_PERSONA_SLUG', 'public:cassidy_perso
 CHUNK_SAMPLES = int(SAMPLE_RATE * 0.05)  # 1200 samples per 50ms
 
 
-async def fetch_mp3_and_push_frames(text: str, audio_output: DataStreamAudioOutput):
+async def tts_deepgram(text: str, voice_id: str = ''):
+    if not DEEPGRAM_API_KEY:
+        return None
+    model = voice_id if voice_id.startswith('aura-') else DEEPGRAM_DEFAULT_MODEL
+    async with aiohttp.ClientSession() as http:
+        async with http.post(
+            "https://api.deepgram.com/v1/speak",
+            params={"model": model, "encoding": "mp3"},
+            json={"text": text},
+            headers={"Authorization": f"Token {DEEPGRAM_API_KEY}"},
+            timeout=aiohttp.ClientTimeout(total=20)
+        ) as resp:
+            if resp.status == 200:
+                data = await resp.read()
+                logger.info(f"Fetched {len(data)} bytes from Deepgram ({model})")
+                return data or None
+            logger.warning(f"Deepgram TTS returned {resp.status}: {(await resp.text())[:100]}")
+            return None
+
+
+async def tts_elevenlabs(text: str, voice_id: str = ''):
+    if not ELEVENLABS_API_KEY:
+        return None
+    async with aiohttp.ClientSession() as http:
+        async with http.post(
+            f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id or ELEVENLABS_VOICE_ID}",
+            json={
+                "text": text,
+                "model_id": "eleven_turbo_v2_5",
+                "voice_settings": {
+                    "stability": 0.5,
+                    "similarity_boost": 0.75,
+                },
+                "output_format": "mp3_44100_128",
+            },
+            headers={"xi-api-key": ELEVENLABS_API_KEY},
+            timeout=aiohttp.ClientTimeout(total=20)
+        ) as resp:
+            if resp.status == 200:
+                data = await resp.read()
+                logger.info(f"Fetched {len(data)} bytes from ElevenLabs")
+                return data
+            logger.warning(f"ElevenLabs TTS returned {resp.status}: {(await resp.text())[:100]}")
+            return None
+
+
+async def tts_openai(text: str, voice_id: str = ''):
+    if not OPENAI_API_KEY:
+        return None
+    async with aiohttp.ClientSession() as http:
+        async with http.post(
+            "https://api.openai.com/v1/audio/speech",
+            json={
+                "model": "tts-1",
+                "input": text,
+                "voice": voice_id or "nova",
+                "response_format": "mp3"
+            },
+            headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+            timeout=aiohttp.ClientTimeout(total=20)
+        ) as resp:
+            if resp.status == 200:
+                data = await resp.read()
+                logger.info(f"Fetched {len(data)} bytes from OpenAI TTS")
+                return data
+            logger.warning(f"OpenAI TTS returned {resp.status}")
+            return None
+
+
+TTS_PROVIDERS = {"deepgram": tts_deepgram, "elevenlabs": tts_elevenlabs, "openai": tts_openai}
+
+
+async def synthesize(text: str, voice: dict):
+    """Persona's provider/voice first, then the same fallback order as the Node backend (tts.js)."""
+    preferred = voice.get('provider') if voice.get('provider') in TTS_PROVIDERS else 'deepgram'
+    order = [preferred] + [p for p in ('deepgram', 'elevenlabs', 'openai') if p != preferred]
+    for provider in order:
+        try:
+            # A voice id only means something to its own provider; fallbacks use their defaults
+            data = await TTS_PROVIDERS[provider](text, voice.get('id', '') if provider == preferred else '')
+            if data:
+                return data
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning(f"{provider} TTS error: {e}")
+    return None
+
+
+async def fetch_mp3_and_push_frames(text: str, audio_output: DataStreamAudioOutput, voice: dict = None):
     """
-    Fetch MP3 from ElevenLabs, OpenAI, or local TTS server, decode to PCM,
-    then push as AudioFrames to Keyframe for real-time lip-sync rendering.
+    Fetch MP3 for the persona's voice (falling back across providers, then the local TTS server),
+    decode to PCM, then push as AudioFrames to Keyframe for real-time lip-sync rendering.
     """
     try:
-        mp3_bytes = None
-
-        if ELEVENLABS_API_KEY:
-            # ── ElevenLabs TTS (Primary) ──
-            async with aiohttp.ClientSession() as http:
-                async with http.post(
-                    f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
-                    json={
-                        "text": text,
-                        "model_id": "eleven_turbo_v2_5",
-                        "voice_settings": {
-                            "stability": 0.5,
-                            "similarity_boost": 0.75,
-                        },
-                        "output_format": "mp3_44100_128",
-                    },
-                    headers={"xi-api-key": ELEVENLABS_API_KEY},
-                    timeout=aiohttp.ClientTimeout(total=20)
-                ) as resp:
-                    if resp.status == 200:
-                        mp3_bytes = await resp.read()
-                        logger.info(f"Fetched {len(mp3_bytes)} bytes from ElevenLabs")
-                    else:
-                        err_t = await resp.text()
-                        logger.warn(f"ElevenLabs TTS returned {resp.status}: {err_t[:100]}")
-
-        if not mp3_bytes and OPENAI_API_KEY:
-            # ── OpenAI TTS (Secondary) ──
-            async with aiohttp.ClientSession() as http:
-                async with http.post(
-                    "https://api.openai.com/v1/audio/speech",
-                    json={
-                        "model": "tts-1",
-                        "input": text,
-                        "voice": "nova",
-                        "response_format": "mp3"
-                    },
-                    headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
-                    timeout=aiohttp.ClientTimeout(total=20)
-                ) as resp:
-                    if resp.status == 200:
-                        mp3_bytes = await resp.read()
-                        logger.info(f"Fetched {len(mp3_bytes)} bytes from OpenAI TTS")
-                    else:
-                        logger.warn(f"OpenAI TTS returned {resp.status}")
+        mp3_bytes = await synthesize(text, voice or {})
 
         if not mp3_bytes:
             # ── Fallback local TTS server (edge-tts) ──
@@ -193,6 +241,17 @@ async def entrypoint(ctx: JobContext):
 
     logger.info(f'Keyframe agent connected to room: {room.name}')
 
+    # Per-product persona from the dispatch metadata; .env values are the fallback
+    try:
+        meta = json.loads(ctx.job.metadata or '{}')
+    except (json.JSONDecodeError, TypeError):
+        meta = {}
+    persona_slug = meta.get('personaSlug') or ''
+    persona_id = meta.get('personaId') or ''
+    if not persona_slug and not persona_id:
+        persona_slug, persona_id = KEYFRAME_PERSONA_SLUG, KEYFRAME_PERSONA_ID
+    default_voice = meta.get('voice') or {}
+
     session = agents.AgentSession()
     avatar = None
     audio_output = None
@@ -202,12 +261,12 @@ async def entrypoint(ctx: JobContext):
         nonlocal avatar, audio_output
         try:
             logger.info('🚀 Starting Keyframe Avatar Session...')
-            if KEYFRAME_PERSONA_SLUG:
-                logger.info(f'Using Keyframe persona slug: {KEYFRAME_PERSONA_SLUG}')
-                avatar = keyframe.AvatarSession(persona_slug=KEYFRAME_PERSONA_SLUG)
+            if persona_slug:
+                logger.info(f'Using Keyframe persona slug: {persona_slug}')
+                avatar = keyframe.AvatarSession(persona_slug=persona_slug)
             else:
-                logger.info(f'Using custom Keyframe persona ID: {KEYFRAME_PERSONA_ID}')
-                avatar = keyframe.AvatarSession(persona_id=KEYFRAME_PERSONA_ID)
+                logger.info(f'Using custom Keyframe persona ID: {persona_id}')
+                avatar = keyframe.AvatarSession(persona_id=persona_id)
 
             await avatar.start(session, room=room)
             audio_output = session.output.audio
@@ -236,18 +295,27 @@ async def entrypoint(ctx: JobContext):
         except (json.JSONDecodeError, UnicodeDecodeError):
             return
 
-        if payload.get('type') == 'speak':
+        def stop_current_speech():
+            if current_speech_task and not current_speech_task.done():
+                current_speech_task.cancel()
+                if hasattr(audio_output, 'clear_buffer'):
+                    try:
+                        audio_output.clear_buffer()
+                    except Exception:
+                        pass
+
+        if payload.get('type') == 'stop':
+            # A human specialist took over the call
+            logger.info("Stop command received")
+            stop_current_speech()
+
+        elif payload.get('type') == 'speak':
             text = payload.get('text', '').strip()
             if text and audio_output:
                 logger.info(f"Speak command received: {text[:80]}")
-                if current_speech_task and not current_speech_task.done():
-                    current_speech_task.cancel()
-                    if hasattr(audio_output, 'clear_buffer'):
-                        try:
-                            audio_output.clear_buffer()
-                        except Exception:
-                            pass
-                current_speech_task = asyncio.create_task(fetch_mp3_and_push_frames(text, audio_output))
+                stop_current_speech()
+                voice = payload.get('voice') or default_voice
+                current_speech_task = asyncio.create_task(fetch_mp3_and_push_frames(text, audio_output, voice))
 
     logger.info('Keyframe agent ready — listening for speak commands.')
     await asyncio.Event().wait()

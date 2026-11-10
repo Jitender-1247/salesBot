@@ -9,14 +9,17 @@ export default function Embed() {
     const [product, setProduct] = useState(null);
     const [loading, setLoading] = useState(true);
     const [copied, setCopied] = useState(false);
-    const [embedMode, setEmbedMode] = useState('choice'); // 'choice' | 'chat' | 'demo'
+    const [embedMode, setEmbedMode] = useState('video'); // 'video' | 'choice' | 'chat' | 'demo'
 
     const serverUrl = window.location.origin.includes('localhost')
         ? 'http://localhost:5000'
         : window.location.origin;
 
     const modeAttr = embedMode === 'choice' ? '' : ` data-mode="${embedMode}"`;
-    const embedCode = `<script src="${serverUrl}/agent.js" data-product-id="${id}" data-server="${serverUrl}"${modeAttr}></script>`;
+    const agentName = product?.persona?.name || 'Sofia';
+    const embedCode = embedMode === 'video'
+        ? `<script src="${serverUrl}/widget3.js" data-product-id="${id}" async></script>`
+        : `<script src="${serverUrl}/agent.js" data-product-id="${id}" data-server="${serverUrl}"${modeAttr}></script>`;
 
     useEffect(() => { fetchProduct(); }, [id]);
 
@@ -65,6 +68,23 @@ export default function Embed() {
                     {/* Mode Selector Card */}
                     <div className="ultra-card p-6 space-y-4">
                         <h2 className="font-bold text-sm" style={{ color: 'var(--text-main)' }}>Select Deployment Mode</h2>
+                        <button
+                            type="button"
+                            onClick={() => setEmbedMode('video')}
+                            className={`w-full p-4 rounded-xl text-left border transition-all cursor-pointer ${
+                                embedMode === 'video'
+                                    ? 'border-purple-500 bg-purple-500/15 shadow-lg'
+                                    : 'border-white/10 bg-white/[0.02] hover:bg-white/[0.05]'
+                            }`}
+                        >
+                            <span className="text-xl block mb-2">🎥</span>
+                            <h3 className="font-bold text-xs" style={{ color: 'var(--text-main)' }}>
+                                AI Video Sales Agent <span className="status-pill status-pill-green text-[10px] ml-1">Recommended</span>
+                            </h3>
+                            <p className="text-[11px] mt-1 leading-relaxed" style={{ color: 'var(--text-sub)' }}>
+                                Floating video bubble with {agentName}: proactive nudges, product cards, human handover. Configure it on the product page.
+                            </p>
+                        </button>
                         <div className="grid grid-cols-3 gap-3">
                             <button
                                 type="button"
@@ -150,7 +170,7 @@ export default function Embed() {
                             {[
                                 { step: '01', title: 'Copy Embed Code', desc: 'Click the copy button above to retrieve your configured script tag.' },
                                 { step: '02', title: 'Paste Before </body>', desc: 'Open your website HTML template and paste the code right before the closing </body> tag.' },
-                                { step: '03', title: 'Live AI Specialist Ready', desc: `A floating button will automatically appear in the bottom right corner of your website (${embedMode === 'chat' ? 'Chat with Sofia' : 'Live Demo'}).` },
+                                { step: '03', title: 'Live AI Specialist Ready', desc: `A floating button will automatically appear in the bottom right corner of your website (${embedMode === 'video' ? `${agentName}'s video bubble` : embedMode === 'chat' ? `Chat with ${agentName}` : 'Live Demo'}).` },
                             ].map(item => (
                                 <div key={item.step} className="flex gap-4">
                                     <span className="font-extrabold text-sm w-6 flex-shrink-0" style={{ color: 'var(--accent-primary)' }}>{item.step}</span>
@@ -172,7 +192,7 @@ export default function Embed() {
                             <div className="absolute bottom-4 right-4 text-white px-4 py-2.5 rounded-full text-xs font-bold flex items-center gap-2 shadow-xl cursor-pointer"
                                 style={{ background: 'var(--accent-gradient)', boxShadow: 'var(--shadow-glow)' }}>
                                 <div className="w-2.5 h-2.5 rounded-full animate-pulse bg-emerald-400" />
-                                {embedMode === 'chat' ? '💬 Chat with Sofia' : '⚡ Live Demo'}
+                                {embedMode === 'video' ? `🎥 Talk to ${agentName}` : embedMode === 'chat' ? `💬 Chat with ${agentName}` : '⚡ Live Demo'}
                             </div>
                         </div>
                     </div>

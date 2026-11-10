@@ -45,7 +45,10 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
     : ['http://localhost:5173', 'http://localhost:5174'];
 
-app.use(cors({
+// Public widget config is fetched by widget3.js from merchants' own sites: any origin, no credentials
+const publicCors = cors({ origin: '*', methods: ['GET'] });
+
+const dashboardCors = cors({
     origin: (origin, callback) => {
         // Allow requests with no origin (e.g. Postman, mobile apps, same-server requests)
         if (!origin) return callback(null, true);
@@ -55,7 +58,9 @@ app.use(cors({
         callback(new Error(`CORS: origin ${origin} not allowed`));
     },
     credentials: true
-}));
+});
+
+app.use((req, res, next) => (req.path.startsWith('/api/embed/') ? publicCors : dashboardCors)(req, res, next));
 
 // Allow microphone in iframes
 app.use((req, res, next) => {

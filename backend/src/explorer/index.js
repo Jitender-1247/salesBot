@@ -1,4 +1,5 @@
 import { chromium } from 'playwright';
+import { mergeExploredRoutes } from '../agent/routes.js';
 import { decrypt } from '../utils/encryption.js';
 import { checkUrl, guardBrowserContext } from '../utils/urlSafety.js';
 import Product from '../models/Product.js';
@@ -101,7 +102,36 @@ async function getInternalLinks(page, baseUrl) {
     );
 }
 
-async function explorePage(page, knowledgeMap, visitedUrls, baseUrl) {
+/**
+ * In-page controls worth a shortcut: tabs, expanders and buttons in the main content.
+ * Stored by role + accessible name so a live demo can find them again without guessing.
+ */
+export async function extractControls(page) {
+    return await page.evaluate(() => {
+        const visible = (el) => {
+            const r = el.getBoundingClientRect();
+            const s = window.getComputedStyle(el);
+            return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+        };
+        const nodes = document.querySelectorAll('[role="tab"], [aria-expanded], summary, main button, main [role="button"], [role="main"] button');
+        const seen = new Set();
+        const controls = [];
+        for (const el of nodes) {
+            if (controls.length >= 6) break;
+            if (!visible(el) || el.closest('nav, header, footer')) continue;
+            const label = (el.getAttribute('aria-label') || el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
+            if (!label || label.length > 40 || seen.has(label.toLowerCase())) continue;
+            if (/^(submit|ok|cancel|close|×|x)$/i.test(label)) continue;
+            seen.add(label.toLowerCase());
+            const tag = el.tagName.toLowerCase();
+            const role = el.getAttribute('role') || (tag === 'a' ? 'link' : 'button');
+            controls.push({ role, label });
+        }
+        return controls;
+    }).catch(() => []);
+}
+
+async function explorePage(page, knowledgeMap, visitedUrls, baseUrl, routes = []) {
     const currentUrl = page.url();
 
     if (visitedUrls.has(currentUrl)) return;
@@ -160,6 +190,16 @@ async function explorePage(page, knowledgeMap, visitedUrls, baseUrl) {
 
         console.log(`✅ Explored: ${pageData.pageName} — ${currentUrl}`);
 
+        for (const control of await extractControls(page)) {
+            routes.push({
+                name: `${control.label} (${control.role} on ${pageData.pageName})`,
+                pageUrl: currentUrl,
+                role: control.role,
+                label: control.label,
+                source: 'explored'
+            });
+        }
+
         if (knowledgeMap.pages.length >= 15) return;
 
         // Get all internal links on this page
@@ -171,7 +211,7 @@ async function explorePage(page, knowledgeMap, visitedUrls, baseUrl) {
             if (!visitedUrls.has(link)) {
                 try {
                     await page.goto(link, { waitUntil: 'domcontentloaded', timeout: 15000 });
-                    await explorePage(page, knowledgeMap, visitedUrls, baseUrl);
+                    await explorePage(page, knowledgeMap, visitedUrls, baseUrl, routes);
                     // Go back to continue finding more links
                     await page.goBack({ waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => { });
                 } catch {
@@ -190,7 +230,7 @@ async function explorePage(page, knowledgeMap, visitedUrls, baseUrl) {
                     await page.waitForLoadState('domcontentloaded', { timeout: 5000 });
                     const newUrl = page.url();
                     if (!visitedUrls.has(newUrl) && newUrl.startsWith(baseUrl)) {
-                        await explorePage(page, knowledgeMap, visitedUrls, baseUrl);
+                        await explorePage(page, knowledgeMap, visitedUrls, baseUrl, routes);
                     }
                 } catch {
                     // skip failed button clicks
@@ -237,6 +277,7 @@ export async function exploreProduct(productId) {
     });
     const page = await browserContext.newPage();
     const knowledgeMap = { pages: [], loginSteps: {}, productSummary: '' };
+    const exploredRoutes = [];
     const visitedUrls = new Set();
 
     try {
@@ -364,7 +405,7 @@ export async function exploreProduct(productId) {
 
         knowledgeMap.loginSteps = loginSteps;
 
-        await explorePage(page, knowledgeMap, visitedUrls, product.url);
+        await explorePage(page, knowledgeMap, visitedUrls, product.url, exploredRoutes);
 
 
         // Generate a sales-oriented product summary via Groq
@@ -407,8 +448,11 @@ Include at most 5 steps. Order them to create the most compelling narrative.`
 
         await Product.findByIdAndUpdate(productId, {
             knowledgeMap,
+            // Keep shortcuts learned in live demos; refresh the explored ones
+            routes: mergeExploredRoutes(product.routes, exploredRoutes),
             explorationStatus: 'ready'
         });
+        console.log(`🧭 ${exploredRoutes.length} in-page shortcuts recorded`);
 
         console.log(`\n🎉 Exploration complete — ${knowledgeMap.pages.length} pages mapped`);
         return knowledgeMap;

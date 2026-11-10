@@ -2,7 +2,20 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import BackButton from '../components/BackButton';
+import AgentSettings from '../components/AgentSettings';
 import api from '../api';
+
+// Exploration sometimes stores the summary as a JSON string ({ summary, keyValueProposition, ... })
+function readableSummary(raw) {
+    if (!raw) return [];
+    try {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+            return Object.values(parsed).filter(v => typeof v === 'string' && v.trim());
+        }
+    } catch { /* plain text */ }
+    return [raw];
+}
 
 export default function ProductDetail() {
     const { id } = useParams();
@@ -15,6 +28,9 @@ export default function ProductDetail() {
     const [savingSession, setSavingSession] = useState(false);
     const [sessionSaved, setSessionSaved] = useState(false);
     const [retrying, setRetrying] = useState(false);
+    const [editingName, setEditingName] = useState(false);
+    const [nameDraft, setNameDraft] = useState('');
+    const [nameError, setNameError] = useState('');
 
     useEffect(() => {
         fetchProduct();
@@ -47,6 +63,20 @@ export default function ProductDetail() {
             console.log('Error saving session:', err);
         } finally {
             setSavingSession(false);
+        }
+    };
+
+    const saveName = async (e) => {
+        e?.preventDefault();
+        const name = nameDraft.trim();
+        if (!name || name === product.name) { setEditingName(false); return; }
+        try {
+            const res = await api.patch(`/products/${id}/config`, { name });
+            setProduct(prev => ({ ...prev, name: res.data.name }));
+            setEditingName(false);
+            setNameError('');
+        } catch (err) {
+            setNameError(err.response?.data?.message || 'Could not rename');
         }
     };
 
@@ -146,9 +176,24 @@ export default function ProductDetail() {
                 <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0 flex-1">
                         <BackButton to="/products" label="Products" />
-                        <h1 className="text-3xl font-extrabold tracking-tight" style={{ color: 'var(--text-main)', fontFamily: 'Outfit, sans-serif' }}>
-                            {product.name}
-                        </h1>
+                        {editingName ? (
+                            <form onSubmit={saveName} className="flex items-center gap-2">
+                                <input autoFocus className="ultra-input text-lg font-bold" style={{ maxWidth: 420 }} value={nameDraft}
+                                    maxLength={120} onChange={e => setNameDraft(e.target.value)}
+                                    onKeyDown={e => { if (e.key === 'Escape') setEditingName(false); }} />
+                                <button type="submit" className="ultra-btn-primary text-xs">Save</button>
+                                <button type="button" className="ultra-btn-secondary text-xs" onClick={() => setEditingName(false)}>Cancel</button>
+                            </form>
+                        ) : (
+                            <h1 className="text-3xl font-extrabold tracking-tight flex items-center gap-3" style={{ color: 'var(--text-main)', fontFamily: 'Outfit, sans-serif' }}>
+                                {product.name}
+                                <button type="button" title="Rename" className="text-sm cursor-pointer opacity-60 hover:opacity-100"
+                                    onClick={() => { setNameDraft(product.name); setNameError(''); setEditingName(true); }}>
+                                    ✏️
+                                </button>
+                            </h1>
+                        )}
+                        {nameError && <p className="text-xs mt-1 font-semibold" style={{ color: '#f43f5e' }}>{nameError}</p>}
                         <p className="text-xs mt-1 font-mono" style={{ color: 'var(--text-sub)' }}>{product.url}</p>
                     </div>
                     <Link to={`/embed/${id}`} className="ultra-btn-primary no-underline text-xs flex-shrink-0">
@@ -164,9 +209,11 @@ export default function ProductDetail() {
                     <div className="ultra-card p-6">
                         <h2 className="font-bold text-sm mb-4" style={{ color: 'var(--text-main)' }}>Product Summary</h2>
                         {product.knowledgeMap?.productSummary ? (
-                            <p className="text-xs leading-relaxed" style={{ color: 'var(--text-sub)' }}>
-                                {product.knowledgeMap.productSummary}
-                            </p>
+                            <div className="space-y-2">
+                                {readableSummary(product.knowledgeMap.productSummary).map((para, i) => (
+                                    <p key={i} className="text-xs leading-relaxed" style={{ color: 'var(--text-sub)' }}>{para}</p>
+                                ))}
+                            </div>
                         ) : (
                             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Summary will appear after exploration completes</p>
                         )}
@@ -224,6 +271,13 @@ export default function ProductDetail() {
                         </div>
                     )}
                 </div>
+
+                {/* Persona, catalog, nudges, handover */}
+                <AgentSettings
+                    key={product._id}
+                    product={product}
+                    onSaved={(saved) => setProduct(prev => ({ ...prev, ...saved }))}
+                />
 
                 {/* Session Import */}
                 <div className="ultra-card p-6 space-y-4">

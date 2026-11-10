@@ -2,7 +2,14 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import BackButton from '../components/BackButton';
+import LeadScorePill from '../components/LeadScorePill';
 import api from '../api';
+
+function handoverLabel(h) {
+    if (!h?.requested) return '—';
+    if (h.outcome === 'accepted') return `🧑‍💼 ${h.agentName}`;
+    return { timeout: 'Requested · no one free', unavailable: 'Requested · team offline', cancelled: 'Requested · cancelled' }[h.outcome] || 'Requested';
+}
 
 export default function CallDetail() {
     const { id } = useParams();
@@ -147,6 +154,8 @@ export default function CallDetail() {
                             { label: 'Duration', val: formatDuration(call.duration || 0) },
                             { label: 'Status', val: <span className={`status-pill ${call.status === 'completed' ? 'status-pill-green' : 'status-pill-purple'}`}>{call.status}</span> },
                             { label: 'Qualified Lead', val: <span className={`status-pill ${call.qualified ? 'status-pill-green' : 'status-pill-purple'}`}>{call.qualified ? 'Yes' : 'No'}</span> },
+                            { label: 'Lead Score', val: ['hot', 'warm', 'cold'].includes(call.leadScore) ? <LeadScorePill score={call.leadScore} reason={call.leadScoreReason} /> : '—' },
+                            { label: 'Handover', val: handoverLabel(call.handover) },
                             { label: 'Language', val: <span className="uppercase text-xs font-mono font-bold">{call.language || 'en'}</span> },
                         ].map((item, i) => (
                             <div key={i} className="flex justify-between items-center text-xs">
@@ -193,6 +202,51 @@ export default function CallDetail() {
                     </div>
                 </div>
 
+                {/* Recording, commerce attribution, lead score reasoning */}
+                {(call.recording?.status && call.recording.status !== 'none') || call.productsShown?.length > 0 || call.leadScoreReason ? (
+                    <div className="grid grid-cols-3 gap-6">
+                        <div className="ultra-card p-6">
+                            <h2 className="font-bold text-sm mb-4" style={{ color: 'var(--text-main)' }}>Recording</h2>
+                            {call.recording?.url?.startsWith('http') ? (
+                                <video src={call.recording.url} controls className="w-full rounded-xl" style={{ background: '#000' }} />
+                            ) : call.recording?.url ? (
+                                <p className="text-xs font-mono break-all" style={{ color: 'var(--text-sub)' }}>{call.recording.url}</p>
+                            ) : (
+                                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                                    {call.recording?.status === 'recording' ? 'Recording in progress…' : call.recording?.status === 'failed' ? 'Recording failed' : 'Not recorded'}
+                                </p>
+                            )}
+                        </div>
+                        <div className="ultra-card p-6">
+                            <h2 className="font-bold text-sm mb-4" style={{ color: 'var(--text-main)' }}>Products Recommended</h2>
+                            {call.productsShown?.length ? (
+                                <div className="space-y-2">
+                                    {call.productsShown.map(sku => {
+                                        const clicks = (call.productClicks || []).filter(c => c.sku === sku).length;
+                                        return (
+                                            <div key={sku} className="flex justify-between items-center text-xs">
+                                                <span className="font-mono" style={{ color: 'var(--text-main)' }}>{sku}</span>
+                                                <span className={`status-pill ${clicks ? 'status-pill-green' : 'status-pill-purple'} text-[10px]`}>
+                                                    {clicks ? `🛒 ${clicks} click${clicks > 1 ? 's' : ''}` : 'shown'}
+                                                </span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>No products shown</p>
+                            )}
+                        </div>
+                        <div className="ultra-card p-6">
+                            <h2 className="font-bold text-sm mb-4" style={{ color: 'var(--text-main)' }}>Lead Score</h2>
+                            <div className="mb-3"><LeadScorePill score={call.leadScore} /></div>
+                            {call.leadScoreReason && (
+                                <p className="text-xs leading-relaxed" style={{ color: 'var(--text-sub)' }}>{call.leadScoreReason}</p>
+                            )}
+                        </div>
+                    </div>
+                ) : null}
+
                 {/* Transcript */}
                 <div className="ultra-card p-6">
                     {(() => {
@@ -212,6 +266,7 @@ export default function CallDetail() {
                                     <div className="space-y-4">
                                         {msgs.map((m, i) => {
                                 const isUser = m.role === 'user';
+                                const isHuman = m.role === 'human';
                                 return (
                                     <div key={i} className={`flex gap-3 max-w-[80%] ${isUser ? 'ml-auto flex-row-reverse' : ''}`}>
                                         <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs flex-shrink-0 font-bold shadow-md"
@@ -219,12 +274,12 @@ export default function CallDetail() {
                                                 background: isUser ? 'rgba(139, 92, 246, 0.2)' : 'var(--accent-gradient)',
                                                 color: isUser ? 'var(--accent-primary)' : '#ffffff',
                                             }}>
-                                            {isUser ? '👤' : '⚡'}
+                                            {isUser ? '👤' : isHuman ? '🧑‍💼' : '⚡'}
                                         </div>
                                         <div>
                                             <div className="flex items-center gap-2 mb-1">
                                                 <span className="text-xs font-bold" style={{ color: 'var(--text-main)' }}>
-                                                    {isUser ? (call.prospectName || 'Visitor') : 'Sofia'}
+                                                    {isUser ? (call.prospectName || 'Visitor') : isHuman ? `${m.author || 'Specialist'} (human)` : (m.author || 'AI Agent')}
                                                 </span>
                                                 <span className="text-[10px] font-mono" style={{ color: 'var(--text-muted)' }}>
                                                     {formatTime(m.timestamp)}

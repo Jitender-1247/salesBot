@@ -7,6 +7,11 @@ const leadSchema = new mongoose.Schema({
     prospectName: String,
     prospectEmail: String,
     qualified: { type: Boolean, default: false },
+    leadScore: {
+        type: String,
+        enum: ['hot', 'warm', 'cold', 'unknown'],
+        default: 'unknown'
+    },
     notes: String,
 
     // Lead lifecycle status (shown in dashboard Leads tab)

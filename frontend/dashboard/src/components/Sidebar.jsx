@@ -4,6 +4,7 @@ import ThemeDrawer from './ThemeDrawer';
 const navItems = [
     { path: '/', icon: '⚡', label: 'Bots' },
     { path: '/products', icon: '📦', label: 'Products' },
+    { path: '/live', icon: '🎧', label: 'Live Console' },
 ];
 
 export default function Sidebar() {

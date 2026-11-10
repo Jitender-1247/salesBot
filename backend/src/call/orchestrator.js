@@ -1,7 +1,8 @@
 import { transcribeAudio } from '../agent/stt.js';
 import { speak } from '../agent/tts.js';
-import { think } from '../agent/brain/index.js';
+import { think, buildActionFeedback } from '../agent/brain/index.js';
 import { Navigator } from '../agent/navigator/index.js';
+import { shortcutsForPrompt, recordLearnedRoute, pageKey } from '../agent/routes.js';
 import { decrypt, decryptIfEncrypted } from '../utils/encryption.js';
 import { generateToken } from '../call/room.js';
 import { RoomServiceClient } from 'livekit-server-sdk';
@@ -11,6 +12,9 @@ import { analyzeCallOutcome } from '../agent/sentiment.js';
 import { isZohoConfigured, upsertLead } from '../integrations/zoho.js';
 import Lead from '../models/Lead.js';
 import dotenv from 'dotenv';
+
+// Think → act → check rounds per user turn: the first plus up to 2 follow-ups when a plan was cut short
+const MAX_FOLLOW_UP_STEPS = 3;
 dotenv.config();
 
 export class CallOrchestrator {
@@ -320,14 +324,16 @@ export class CallOrchestrator {
 
                 // Get current page context so the LLM knows where it is
                 const pageContext = await this.navigator.getPageContext();
+                const shortcuts = shortcutsForPrompt(this.product.routes || [], pageContext?.url);
 
                 const decision = await think(
-                    stepCount === 1 ? transcript : '(Continue — the previous action completed successfully. Look at CURRENT PAGE STATE to see where you are now.)',
+                    stepCount === 1 ? transcript : '(Continue: read the action results above and CURRENT PAGE STATE, then finish what the user asked. If it is already done, confirm it in one short sentence and call no tools.)',
                     this.currentLanguage,
                     this.product.knowledgeMap,
                     this.conversationHistory,
                     this.product.name,
-                    pageContext  // NEW: pass page context to brain
+                    pageContext,  // pass page context to brain
+                    shortcuts
                 );
 
                 this.io.to(this.callId).emit('agent-thinking', false);
@@ -349,10 +355,15 @@ export class CallOrchestrator {
                 }
 
                 // Now execute the browser action after speaking
+                let needsFollowUp = false;
                 if (decision.finish_reason === 'tool_calls' && decision.message.tool_calls) {
-                    for (const toolCall of decision.message.tool_calls) {
+                    const outcomes = [];
+                    const calls = decision.message.tool_calls;
+                    for (const [callIdx, toolCall] of calls.entries()) {
                         const toolName = toolCall.function.name;
-                        const toolArgs = JSON.parse(toolCall.function.arguments);
+                        const toolArgs = typeof toolCall.function.arguments === 'string'
+                            ? JSON.parse(toolCall.function.arguments)
+                            : (toolCall.function.arguments || {});
 
                         // Repetition detection: if same action as last turn, force stop
                         const actionKey = `${toolName}:${JSON.stringify(toolArgs)}`;
@@ -363,20 +374,60 @@ export class CallOrchestrator {
                         }
                         this.lastActionKey = actionKey;
 
-                        const result = await this.navigator.executeAction(toolName, toolArgs);
+                        const prevUrl = this.navigator.getCurrentUrl();
+                        const prevTitle = await this.navigator.page?.title().catch(() => '') || '';
+
+                        // A shortcut id only means something for this turn's list: hand the navigator the route itself
+                        const actionArgs = toolName === 'open_shortcut'
+                            ? { ...toolArgs, route: shortcuts.find(sc => sc.id === String(toolArgs.shortcutId || '').toUpperCase()) }
+                            : toolArgs;
+
+                        const result = await this.navigator.executeAction(toolName, actionArgs);
+                        const outcome = await this.navigator.getActionOutcome({ prevUrl, prevTitle });
+                        const fullResult = { ...result, ...outcome };
+                        if (result?.ok !== false) this.learnRoute(toolName, actionArgs, pageContext, prevUrl, fullResult);
+
+                        outcomes.push({
+                            tool: toolName,
+                            args: toolArgs,
+                            result: fullResult
+                        });
+                        console.log(`${result?.ok === false ? '❌' : '✅'} Action outcome:`, fullResult);
+
                         if (result?.ok === false) {
-                            // Tell the LLM the browser did NOT move, so its next turn matches the screen
-                            this.conversationHistory.push({
-                                role: 'system',
-                                content: `[System: Your last action (${toolName}) did not happen: ${result.error}. The browser is still on ${this.navigator.getCurrentUrl()}. Only use page URLs from the knowledge map.]`
-                            });
-                            continue;
+                            // The rest of the batch was planned on a screen that didn't happen: re-plan instead
+                            needsFollowUp = true;
+                            break;
                         }
                         this.io.to(this.callId).emit('navigation-event', {
                             tool: toolName,
                             args: toolArgs
                         });
+
+                        // A new page invalidates the element numbers the remaining calls refer to,
+                        // so stop here and let the agent pick targets from the fresh page.
+                        const remaining = calls.length - callIdx - 1;
+                        if (remaining > 0 && (fullResult.urlChanged || fullResult.dialogVisible)) {
+                            console.log(`↪️ Page changed after ${toolName}; re-reading the page before the next ${remaining} action(s).`);
+                            needsFollowUp = true;
+                            break;
+                        }
                     }
+
+                    if (outcomes.length > 0) {
+                        const feedback = buildActionFeedback(outcomes);
+                        if (feedback) {
+                            this.conversationHistory.push({
+                                role: 'system',
+                                content: `${feedback}\n[System: The browser is now on ${this.navigator.getCurrentUrl()}.${needsFollowUp ? ' Some planned steps were not run yet; use the CURRENT PAGE STATE element numbers to continue.' : ''}]`
+                            });
+                        }
+                    }
+                }
+
+                // Unfinished or failed plan: give the agent another look at the page (bounded)
+                if (needsFollowUp && stepCount < MAX_FOLLOW_UP_STEPS && !(this.interruptRequested && interruptId < this.speechSequence)) {
+                    continue;
                 }
 
                 // Turn complete: once the agent has spoken and executed actions, wait for user response
@@ -507,6 +558,37 @@ export class CallOrchestrator {
         }
     }
 
+    /**
+     * Remember clicks that opened something new (a page outside the knowledge map, or a dialog),
+     * and count successful shortcut uses, so future demos can open them in one deterministic step.
+     */
+    learnRoute(toolName, args, pageContext, prevUrl, outcome) {
+        try {
+            const known = (this.product.knowledgeMap?.pages || []).map(p => pageKey(p.url));
+            let route = null;
+            if (toolName === 'open_shortcut' && args.route) {
+                route = { pageUrl: args.route.pageUrl, role: args.route.role, label: args.route.label, toUrl: outcome.urlChanged ? outcome.newUrl : '' };
+            } else if (toolName === 'click_element' && args.dataZyxId !== undefined) {
+                const opensNewPage = outcome.urlChanged && !known.includes(pageKey(outcome.newUrl));
+                if (!opensNewPage && !outcome.dialogVisible) return;
+                const el = pageContext?.elements?.find(e => String(e.id) === String(args.dataZyxId));
+                if (!el || String(el.id).startsWith('f')) return; // frame elements can't be found again by role
+                const page = (this.product.knowledgeMap?.pages || []).find(p => pageKey(p.url) === pageKey(prevUrl));
+                route = { pageUrl: prevUrl, pageName: page?.name, role: el.role, label: el.accessibleName || el.text, toUrl: outcome.urlChanged ? outcome.newUrl : '' };
+            }
+            if (!route) return;
+            this.product.routes = recordLearnedRoute(this.product.routes || [], route);
+            clearTimeout(this.saveRoutesTimer);
+            this.saveRoutesTimer = setTimeout(() => {
+                Product.updateOne({ _id: this.product._id }, { routes: this.product.routes })
+                    .catch(err => console.log('⚠️ Could not save learned shortcut:', err.message));
+            }, 2000);
+            console.log(`🧭 Learned/used shortcut: ${route.label} on ${route.pageUrl}`);
+        } catch (err) {
+            console.log('⚠️ learnRoute error:', err.message);
+        }
+    }
+
     async checkSessionTimeout() {
         if (!this.isActive || !this.navigator || !this.navigator.page) return;
         // Only check logout if credentials are configured for this product
@@ -542,7 +624,9 @@ export class CallOrchestrator {
                 satisfaction,
                 satisfactionReason,
                 qualified,
-                qualificationReason
+                qualificationReason,
+                leadScore,
+                leadScoreReason
             } = await analyzeCallOutcome(this.transcript);
 
             const update = {
@@ -556,7 +640,9 @@ export class CallOrchestrator {
                 satisfaction,
                 satisfactionReason,
                 qualified,
-                qualificationReason
+                qualificationReason,
+                leadScore,
+                leadScoreReason
             };
             if (prospectEmail) update.prospectEmail = prospectEmail;
             if (prospectName) update.prospectName = prospectName;

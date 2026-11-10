@@ -2,7 +2,51 @@ import { chromium } from 'playwright';
 import { Room, RoomEvent, LocalVideoTrack, VideoSource } from '@livekit/rtc-node';
 import dotenv from 'dotenv';
 import { checkUrl, sameSite, guardBrowserContext } from '../../utils/urlSafety.js';
+import { pageKey } from '../routes.js';
 dotenv.config();
+
+/**
+ * Runs inside every page: a visible cursor the visitor can follow in the live view.
+ * pointer-events:none so it never blocks the page; it's not an interactable, so getPageContext ignores it.
+ */
+function installZyxCursor() {
+    if (window.__zyxMoveCursor) return;
+    const ensure = (x, y) => {
+        let c = document.getElementById('__zyx_cursor');
+        if (!c) {
+            c = document.createElement('div');
+            c.id = '__zyx_cursor';
+            c.setAttribute('aria-hidden', 'true');
+            c.innerHTML = '<svg width="26" height="26" viewBox="0 0 24 24"><path d="M4 2l15 11-6.5 1.2L9 21z" fill="#111827" stroke="#ffffff" stroke-width="1.6" stroke-linejoin="round"/></svg>';
+            c.style.cssText = 'position:fixed;width:26px;height:26px;z-index:2147483647;pointer-events:none;' +
+                'filter:drop-shadow(0 2px 3px rgba(0,0,0,.35));transition:left .45s cubic-bezier(.22,.61,.36,1),top .45s cubic-bezier(.22,.61,.36,1);';
+            // Start where the cursor was on the previous page, without animating
+            c.style.transition = 'none';
+            c.style.left = `${x}px`;
+            c.style.top = `${y}px`;
+            (document.body || document.documentElement).appendChild(c);
+            c.getBoundingClientRect();
+            c.style.transition = 'left .45s cubic-bezier(.22,.61,.36,1),top .45s cubic-bezier(.22,.61,.36,1)';
+        }
+        return c;
+    };
+    window.__zyxMoveCursor = (x, y, fromX = 640, fromY = 360) => {
+        const c = ensure(fromX - 4, fromY - 2);
+        c.style.left = `${x - 4}px`;
+        c.style.top = `${y - 2}px`;
+    };
+    window.__zyxClickPulse = (x, y) => {
+        const r = document.createElement('div');
+        r.style.cssText = `position:fixed;left:${x - 18}px;top:${y - 18}px;width:36px;height:36px;border-radius:50%;` +
+            'border:3px solid #6366f1;z-index:2147483646;pointer-events:none;opacity:.9;transform:scale(.4);' +
+            'transition:transform .5s ease-out,opacity .5s ease-out;';
+        (document.body || document.documentElement).appendChild(r);
+        requestAnimationFrame(() => { r.style.transform = 'scale(1.7)'; r.style.opacity = '0'; });
+        setTimeout(() => r.remove(), 650);
+    };
+}
+
+const LIVE_VIEW_MIN_FRAME_MS = 66; // ~15 fps cap while the screen is changing
 
 export class Navigator {
     constructor() {
@@ -109,7 +153,100 @@ export class Navigator {
         await this.context.addInitScript(() => {
             Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         });
+        // Visible cursor in every document, so the visitor can follow what the agent does
+        await this.context.addInitScript(installZyxCursor);
         this.page = await this.context.newPage();
+    }
+
+    /**
+     * Smooth live view: Chrome's screencast pushes a JPEG only when the screen actually changes
+     * (up to ~15 fps while scrolling / the cursor moves, ~0 when idle), instead of fixed screenshots.
+     * onFrame(base64Jpeg) is called with the latest frame; trailing frames are never dropped.
+     */
+    async startLiveView(onFrame) {
+        if (this.cdp || !this.page) return false;
+        try {
+            const cdp = await this.context.newCDPSession(this.page);
+            this.cdp = cdp;
+            let lastSent = 0;
+            let pending = null;
+            let timer = null;
+
+            const send = (data) => {
+                lastSent = Date.now();
+                this.lastFrame = data;
+                this.lastFrameAt = lastSent;
+                onFrame(data);
+            };
+
+            cdp.on('Page.screencastFrame', ({ data, sessionId }) => {
+                cdp.send('Page.screencastFrameAck', { sessionId }).catch(() => {});
+                const wait = LIVE_VIEW_MIN_FRAME_MS - (Date.now() - lastSent);
+                if (wait <= 0) {
+                    clearTimeout(timer);
+                    pending = null;
+                    send(data);
+                } else {
+                    pending = data;
+                    clearTimeout(timer);
+                    timer = setTimeout(() => { if (pending) { const d = pending; pending = null; send(d); } }, wait);
+                }
+            });
+
+            await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 60, maxWidth: 1280, maxHeight: 720, everyNthFrame: 1 });
+            this.liveViewActive = true;
+            console.log('📺 Live view started (screencast)');
+            return true;
+        } catch (err) {
+            console.log('⚠️ Live view unavailable, falling back to screenshots:', err.message);
+            this.cdp = null;
+            this.liveViewActive = false;
+            return false;
+        }
+    }
+
+    async stopLiveView() {
+        if (!this.cdp) return;
+        const cdp = this.cdp;
+        this.cdp = null;
+        this.liveViewActive = false;
+        await cdp.send('Page.stopScreencast').catch(() => {});
+        await cdp.detach().catch(() => {});
+    }
+
+    /**
+     * Glide the visible cursor to an element (smooth-scrolling it into view first) so the visitor
+     * sees what is about to be clicked. Also moves the real mouse, so hover menus open naturally.
+     */
+    async pointAt(locator) {
+        try {
+            await locator.evaluate(el => el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' }));
+            // Wait for the smooth scroll to finish: the element stops moving (max ~1.5s)
+            let box = await locator.boundingBox();
+            for (let i = 0; i < 15; i++) {
+                await this.page.waitForTimeout(100);
+                const next = await locator.boundingBox();
+                const settled = box && next && Math.abs(next.x - box.x) < 1 && Math.abs(next.y - box.y) < 1;
+                box = next;
+                if (settled) break;
+            }
+            if (!box) return null;
+            const x = Math.round(box.x + box.width / 2);
+            const y = Math.round(box.y + box.height / 2);
+            const from = this.cursorPos || { x: 640, y: 360 };
+            await this.page.evaluate(({ x, y, fx, fy }) => window.__zyxMoveCursor?.(x, y, fx, fy), { x, y, fx: from.x, fy: from.y }).catch(() => {});
+            await this.page.mouse.move(x, y, { steps: 12 }).catch(() => {});
+            await this.page.waitForTimeout(350);
+            this.cursorPos = { x, y };
+            return { x, y };
+        } catch {
+            return null;
+        }
+    }
+
+    async clickPulse(point) {
+        if (!point) return;
+        await this.page.evaluate(({ x, y }) => window.__zyxClickPulse?.(x, y), point).catch(() => {});
     }
 
     async connectToRoom(livekitUrl, token) {
@@ -368,7 +505,7 @@ export class Navigator {
 
 
     /**
-     * Get a rich page context with numbered interactable elements.
+     * Get a rich page context with numbered interactable elements tagged with data-zyx-id.
      * This gives the LLM precise targets it can click by ID number.
      */
     async getPageContext() {
@@ -383,76 +520,190 @@ export class Navigator {
 
                 // Get headings for page understanding
                 const headings = Array.from(document.querySelectorAll('h1, h2, h3'))
-                    .map(h => h.innerText.trim())
+                    .map(h => (h.innerText || h.textContent || '').trim())
                     .filter(t => t.length > 0)
                     .slice(0, 6);
 
-                // Build a numbered list of ALL interactable elements
-                const selectors = 'a, button, [role="button"], input, select, textarea, [onclick], [data-test], [data-testid]';
-                const allElements = Array.from(document.querySelectorAll(selectors));
+                const interactableSelectors = 'a, button, [role="button"], input, select, textarea, [role="link"], [role="tab"], [role="menuitem"], [onclick], [data-test], [data-testid]';
+
+                // ── 5. Page outline at top: sections (nav, header, main, footer, aside), section headings inside them, ranked by interactable count ──
+                const sectionElements = Array.from(document.querySelectorAll('nav, header, main, footer, aside'));
+                const outline = sectionElements.map(sec => {
+                    const tag = sec.tagName.toLowerCase();
+                    const secHeadings = Array.from(sec.querySelectorAll('h1, h2, h3, h4, h5, h6'))
+                        .map(h => (h.innerText || h.textContent || '').trim())
+                        .filter(Boolean)
+                        .slice(0, 4);
+                    const interactableCount = sec.querySelectorAll(interactableSelectors).length;
+                    return {
+                        tag,
+                        headings: secHeadings,
+                        interactableCount
+                    };
+                }).sort((a, b) => b.interactableCount - a.interactableCount);
 
                 const elements = [];
-                let id = 1;
+                let nextId = 1;
+                const MAX_ELEMENTS = 50;
 
-                for (const el of allElements) {
-                    // Skip hidden/invisible elements
-                    const rect = el.getBoundingClientRect();
-                    const style = window.getComputedStyle(el);
-                    if (
-                        style.display === 'none' ||
-                        style.visibility === 'hidden' ||
-                        style.opacity === '0' ||
-                        rect.width === 0 ||
-                        rect.height === 0
-                    ) continue;
+                const isVisible = (el) => {
+                    try {
+                        const rect = el.getBoundingClientRect();
+                        const style = window.getComputedStyle(el);
+                        if (
+                            style.display === 'none' ||
+                            style.visibility === 'hidden' ||
+                            style.opacity === '0' ||
+                            rect.width === 0 ||
+                            rect.height === 0
+                        ) return false;
+                        return true;
+                    } catch {
+                        return false;
+                    }
+                };
 
-                    // Get visible text
-                    let text = (el.innerText || el.textContent || '').trim();
-                    if (text.length > 60) text = text.substring(0, 57) + '...';
+                const computeAccessibleName = (el) => {
+                    try {
+                        const aria = el.getAttribute('aria-label');
+                        if (aria && aria.trim()) return aria.trim();
 
-                    // Skip elements with no useful text or identifier
-                    const testId = el.getAttribute('data-test') || el.getAttribute('data-testid') || '';
-                    const ariaLabel = el.getAttribute('aria-label') || '';
-                    const placeholder = el.getAttribute('placeholder') || '';
-                    const name = el.getAttribute('name') || '';
-                    const elId = el.id || '';
-                    const href = el.getAttribute('href') || '';
-                    const type = el.getAttribute('type') || '';
+                        const ariaLabelledBy = el.getAttribute('aria-labelledby');
+                        if (ariaLabelledBy) {
+                            const labelEl = document.getElementById(ariaLabelledBy);
+                            if (labelEl && (labelEl.innerText || labelEl.textContent)) {
+                                const lText = (labelEl.innerText || labelEl.textContent).trim();
+                                if (lText) return lText;
+                            }
+                        }
 
-                    // Must have at least SOME identifying feature
-                    if (!text && !testId && !ariaLabel && !elId && !placeholder && !href) continue;
+                        const text = (el.innerText || el.textContent || '').trim();
+                        if (text) return text;
 
-                    // Build the best CSS selector for this element
-                    let selector = '';
-                    if (testId) selector = `[data-test="${testId}"]`;
-                    else if (el.getAttribute('data-testid')) selector = `[data-testid="${el.getAttribute('data-testid')}"]`;
-                    else if (elId) selector = `#${elId}`;
-                    else if (name) selector = `${el.tagName.toLowerCase()}[name="${name}"]`;
-                    else selector = '';  // Will use text-based click
+                        const title = el.getAttribute('title');
+                        if (title && title.trim()) return title.trim();
 
-                    const tag = el.tagName.toLowerCase();
-                    const role = el.getAttribute('role') || (tag === 'a' ? 'link' : tag === 'button' ? 'button' : tag === 'input' ? 'input' : '');
+                        const alt = el.getAttribute('alt');
+                        if (alt && alt.trim()) return alt.trim();
 
-                    // Is it currently in the viewport?
-                    const inViewport = rect.top < window.innerHeight && rect.bottom > 0;
+                        const placeholder = el.getAttribute('placeholder');
+                        if (placeholder && placeholder.trim()) return placeholder.trim();
 
-                    elements.push({
-                        id: id++,
-                        tag,
-                        role,
-                        text: text || ariaLabel || placeholder || `[${tag}]`,
-                        testId,
-                        selector,
-                        href: tag === 'a' ? href : '',
-                        type,
-                        visible: inViewport
-                    });
+                        const val = el.value;
+                        if (val && typeof val === 'string' && val.trim()) return val.trim();
 
-                    // Cap at 30 elements to keep prompt manageable
-                    if (id > 30) break;
+                        return '';
+                    } catch {
+                        return '';
+                    }
+                };
+
+                const computeRole = (el, tag) => {
+                    try {
+                        const r = el.getAttribute('role');
+                        if (r && r.trim()) return r.trim();
+                        if (tag === 'a') return 'link';
+                        if (tag === 'button') return 'button';
+                        if (tag === 'select') return 'combobox';
+                        if (tag === 'textarea') return 'textbox';
+                        if (tag === 'input') {
+                            const type = (el.getAttribute('type') || 'text').toLowerCase();
+                            if (['button', 'submit', 'reset'].includes(type)) return 'button';
+                            if (['checkbox', 'radio'].includes(type)) return type;
+                            return 'textbox';
+                        }
+                        return '';
+                    } catch {
+                        return '';
+                    }
+                };
+
+                // Roots to scan: main document, open shadow roots, same-origin iframes (cross-origin ones throw and are skipped)
+                const roots = [];
+                const collectRoots = (root, framePrefix) => {
+                    roots.push({ root, framePrefix });
+                    try {
+                        for (const node of root.querySelectorAll('*')) {
+                            if (node.shadowRoot) collectRoots(node.shadowRoot, framePrefix);
+                        }
+                    } catch {}
+                };
+                collectRoots(document, '');
+                Array.from(document.querySelectorAll('iframe')).forEach((iframe, fIdx) => {
+                    try {
+                        const frameDoc = iframe.contentDocument || iframe.contentWindow?.document;
+                        if (frameDoc) collectRoots(frameDoc, `f${fIdx + 1}_`);
+                    } catch {}
+                });
+
+                // Markers from an earlier read must go: after a re-render the same number could sit on a
+                // different element, and a stale duplicate would make [data-zyx-id="N"] hit the wrong one.
+                for (const { root } of roots) {
+                    try { root.querySelectorAll('[data-zyx-id]').forEach(el => el.removeAttribute('data-zyx-id')); } catch {}
                 }
 
-                return { title, url, headings, elements };
+                // Pass 1: every visible, identifiable candidate (in DOM order)
+                const candidates = [];
+                for (const { root, framePrefix } of roots) {
+                    let nodes = [];
+                    try { nodes = Array.from(root.querySelectorAll(interactableSelectors)); } catch {}
+                    for (const el of nodes) {
+                        if (candidates.length >= 600) break;
+                        if (!isVisible(el)) continue;
+
+                        let accessibleName = computeAccessibleName(el);
+                        const testId = el.getAttribute('data-test') || el.getAttribute('data-testid') || '';
+                        const elId = el.id || '';
+                        const href = el.getAttribute('href') || '';
+                        const tag = el.tagName.toLowerCase();
+                        const name = el.getAttribute('name') || '';
+
+                        // Skip elements with no identifying feature
+                        if (!accessibleName && !testId && !elId && !href && !name && tag !== 'input') continue;
+                        if (accessibleName.length > 60) accessibleName = accessibleName.substring(0, 57) + '...';
+
+                        const rect = el.getBoundingClientRect();
+                        const inViewport = rect.top < (window.innerHeight || document.documentElement.clientHeight) &&
+                                          rect.bottom > 0 &&
+                                          rect.left < (window.innerWidth || document.documentElement.clientWidth) &&
+                                          rect.right > 0;
+
+                        // Relevance: an open dialog first, then what's on screen and in the main content;
+                        // site chrome (menus, header, footer) last, so it can't crowd out the page itself.
+                        let score = 0;
+                        if (el.closest('[role="dialog"], [role="alertdialog"], dialog[open]')) score += 6;
+                        if (inViewport) score += 3;
+                        if (el.closest('main, article, [role="main"]')) score += 2;
+                        if (el.closest('nav, header, footer, [role="navigation"], [role="banner"], [role="contentinfo"]')) score -= 2;
+
+                        candidates.push({ el, framePrefix, accessibleName, testId, href, tag, inViewport, score, order: candidates.length });
+                    }
+                }
+
+                // Pass 2: keep the most relevant, list them in page order, and mark only those
+                const chosen = candidates
+                    .sort((a, b) => b.score - a.score || a.order - b.order)
+                    .slice(0, MAX_ELEMENTS)
+                    .sort((a, b) => a.order - b.order);
+
+                for (const c of chosen) {
+                    const id = c.framePrefix ? `${c.framePrefix}${nextId++}` : nextId++;
+                    try { c.el.setAttribute('data-zyx-id', String(id)); } catch {}
+                    elements.push({
+                        id,
+                        tag: c.tag,
+                        role: computeRole(c.el, c.tag),
+                        type: c.el.getAttribute('type') || '',
+                        accessibleName: c.accessibleName,
+                        text: c.accessibleName || `[${c.tag}]`,
+                        testId: c.testId,
+                        selector: `[data-zyx-id="${id}"]`,
+                        href: c.tag === 'a' ? c.href : '',
+                        visible: c.inViewport
+                    });
+                }
+
+                return { title, url, headings, outline, elements };
             });
 
             return context;
@@ -462,6 +713,7 @@ export class Navigator {
                 title: '',
                 url: this.page?.url() || '',
                 headings: [],
+                outline: [],
                 elements: []
             };
         }
@@ -489,89 +741,156 @@ export class Navigator {
                 }
 
                 case 'click_element': {
-                    console.log(`👆 Clicking: ${toolArgs.description} (${toolArgs.selector})`);
-                    let clicked = false;
+                    console.log(`👆 Clicking: ${toolArgs.description || ''} (dataZyxId: ${toolArgs.dataZyxId}, selector: ${toolArgs.selector})`);
+                    let targetLoc = null;
 
-                    // Strategy 1: Try exact text match via Playwright locator
-                    if (toolArgs.selector.startsWith('text=')) {
-                        const searchText = toolArgs.selector.replace(/^text="?/, '').replace(/"?$/, '');
-                        try {
-                            // Try getByText with exact match first
-                            const exactLoc = this.page.getByText(searchText, { exact: true }).first();
-                            await exactLoc.click({ timeout: 3000 });
-                            clicked = true;
-                            console.log('  ✅ Clicked via exact text match');
-                        } catch {
-                            // Try partial text match
-                            try {
-                                const partialLoc = this.page.getByText(searchText).first();
-                                await partialLoc.click({ timeout: 3000 });
-                                clicked = true;
-                                console.log('  ✅ Clicked via partial text match');
-                            } catch {
-                                // Try getByRole with name
-                                try {
-                                    const roleLoc = this.page.getByRole('link', { name: searchText }).or(
-                                        this.page.getByRole('button', { name: searchText })
-                                    ).first();
-                                    await roleLoc.click({ timeout: 3000 });
-                                    clicked = true;
-                                    console.log('  ✅ Clicked via role match');
-                                } catch {
-                                    // Final: try CSS selector-based approach
-                                    try {
-                                        const cssLoc = this.page.locator(`a:has-text("${searchText}"), button:has-text("${searchText}"), [class*="item"]:has-text("${searchText}")`).first();
-                                        await cssLoc.click({ timeout: 3000 });
-                                        clicked = true;
-                                        console.log('  ✅ Clicked via CSS has-text');
-                                    } catch {
-                                        console.log('  ❌ All text-based click strategies failed');
-                                    }
+                    // Strategy 1: If dataZyxId is present on toolArgs, use [data-zyx-id="N"] as primary target
+                    if (toolArgs.dataZyxId !== undefined && toolArgs.dataZyxId !== null && toolArgs.dataZyxId !== '') {
+                        const zyxSelector = `[data-zyx-id="${toolArgs.dataZyxId}"]`;
+                        let loc = this.page.locator(zyxSelector).first();
+                        let exists = await loc.count().catch(() => 0);
+                        if (exists > 0) {
+                            targetLoc = loc;
+                        } else {
+                            // Check iframes for the element
+                            for (const frame of this.page.frames()) {
+                                const frameLoc = frame.locator(zyxSelector).first();
+                                if (await frameLoc.count().catch(() => 0) > 0) {
+                                    targetLoc = frameLoc;
+                                    break;
                                 }
                             }
                         }
                     }
 
-                    // Strategy 2: Direct CSS selector
-                    if (!clicked) {
-                        try {
-                            const loc = this.page.locator(toolArgs.selector).first();
-                            await loc.click({ timeout: 3000 });
-                            clicked = true;
-                            console.log('  ✅ Clicked via direct selector');
-                        } catch {
-                            // Force click as last resort
+                    // Strategy 2: Fallback to selector or text-based locator
+                    if (!targetLoc && toolArgs.selector) {
+                        if (toolArgs.selector.startsWith('text=')) {
+                            const searchText = toolArgs.selector.replace(/^text="?/, '').replace(/"?$/, '');
                             try {
-                                const loc = this.page.locator(toolArgs.selector).first();
-                                await loc.click({ timeout: 3000, force: true });
-                                clicked = true;
-                                console.log('  ✅ Clicked via force click');
-                            } catch (e) {
-                                console.log(`  ❌ Click completely failed: ${e.message}`);
+                                const exactLoc = this.page.getByText(searchText, { exact: true }).first();
+                                if (await exactLoc.count().catch(() => 0) > 0) {
+                                    targetLoc = exactLoc;
+                                }
+                            } catch {}
+                            if (!targetLoc) {
+                                try {
+                                    const partialLoc = this.page.getByText(searchText).first();
+                                    if (await partialLoc.count().catch(() => 0) > 0) {
+                                        targetLoc = partialLoc;
+                                    }
+                                } catch {}
                             }
+                            if (!targetLoc) {
+                                try {
+                                    const roleLoc = this.page.getByRole('link', { name: searchText }).or(
+                                        this.page.getByRole('button', { name: searchText })
+                                    ).first();
+                                    if (await roleLoc.count().catch(() => 0) > 0) {
+                                        targetLoc = roleLoc;
+                                    }
+                                } catch {}
+                            }
+                            if (!targetLoc) {
+                                targetLoc = this.page.locator(`a:has-text("${searchText}"), button:has-text("${searchText}"), [class*="item"]:has-text("${searchText}")`).first();
+                            }
+                        } else {
+                            targetLoc = this.page.locator(toolArgs.selector).first();
                         }
                     }
 
-                    // Wait briefly for UI animations/modals
-                    await this.page.waitForTimeout(800);
+                    if (targetLoc) {
+                        try {
+                            // Visible in the live view: smooth-scroll, glide the cursor over, pulse, then a real click (no force)
+                            await targetLoc.waitFor({ state: 'attached', timeout: 3000 });
+                            const point = await this.pointAt(targetLoc);
+                            await targetLoc.scrollIntoViewIfNeeded({ timeout: 3000 }).catch(() => {});
+                            await targetLoc.waitFor({ state: 'visible', timeout: 3000 });
+                            await this.clickPulse(point);
+                            await targetLoc.click({ timeout: 3000 });
+                            console.log('  ✅ Clicked normally (no force)');
+                        } catch (e) {
+                            console.log(`  ❌ Click failed: ${e.message}`);
+                            return { ok: false, error: e.message };
+                        }
+                    } else {
+                        console.log('  ❌ Click target locator not found');
+                        return { ok: false, error: 'Target element not found' };
+                    }
+
+                    // 5. After clicking, wait for networkidle for up to 1500ms (catch silently) so the page can settle
+                    await this.page.waitForLoadState('networkidle', { timeout: 1500 }).catch(() => {});
+                    await this.page.waitForTimeout(500);
+                    break;
+                }
+
+                case 'open_shortcut': {
+                    const route = toolArgs.route;
+                    if (!route?.label || !route.pageUrl) return { ok: false, error: `Unknown shortcut ${toolArgs.shortcutId || ''}`.trim() };
+                    console.log(`🧭 Shortcut: ${route.name}`);
+
+                    if (pageKey(this.page.url()) !== pageKey(route.pageUrl)) {
+                        const moved = await this.executeAction('navigate_to', { url: route.pageUrl, pageName: route.name });
+                        if (moved?.ok === false) return moved;
+                    }
+
+                    // Find the control by role + name (exact first); client-rendered pages may need a moment
+                    const finders = [];
+                    if (route.role) finders.push(() => this.page.getByRole(route.role, { name: route.label, exact: true }));
+                    finders.push(() => this.page.getByText(route.label, { exact: true }));
+                    if (route.role) finders.push(() => this.page.getByRole(route.role, { name: route.label }));
+                    let target = null;
+                    for (let attempt = 0; attempt < 3 && !target; attempt++) {
+                        if (attempt) await this.page.waitForTimeout(700);
+                        for (const find of finders) {
+                            try {
+                                const loc = find().first();
+                                if (await loc.isVisible().catch(() => false)) { target = loc; break; }
+                            } catch { /* e.g. a role Playwright doesn't know */ }
+                        }
+                    }
+                    if (!target) return { ok: false, error: `"${route.label}" was not found on ${route.pageUrl}` };
+
+                    try {
+                        await this.clickPulse(await this.pointAt(target));
+                        await target.click({ timeout: 3000 });
+                    } catch (e) {
+                        return { ok: false, error: e.message };
+                    }
+                    await this.page.waitForLoadState('networkidle', { timeout: 1500 }).catch(() => {});
+                    await this.page.waitForTimeout(300);
                     break;
                 }
 
                 case 'type_text': {
-                    console.log(`⌨️ Typing into: ${toolArgs.selector}`);
-                    try {
-                        const loc = this.page.locator(toolArgs.selector).first();
-                        await loc.fill(toolArgs.text, { timeout: 5000 });
-                    } catch {
-                        // Try by placeholder
-                        try {
-                            const loc = this.page.getByPlaceholder(toolArgs.selector).first();
-                            await loc.fill(toolArgs.text, { timeout: 3000 });
-                        } catch (e) {
-                            console.log(`  ❌ Type failed: ${e.message}`);
-                        }
+                    console.log(`⌨️ Typing into: ${toolArgs.dataZyxId ? `#${toolArgs.dataZyxId}` : toolArgs.selector}`);
+                    const attempts = [];
+                    if (toolArgs.dataZyxId !== undefined && toolArgs.dataZyxId !== null && toolArgs.dataZyxId !== '') {
+                        const zyx = `[data-zyx-id="${toolArgs.dataZyxId}"]`;
+                        attempts.push(() => this.page.locator(zyx).first());
+                        for (const frame of this.page.frames()) attempts.push(() => frame.locator(zyx).first());
                     }
-                    await this.page.waitForTimeout(500);
+                    if (toolArgs.selector) {
+                        attempts.push(() => this.page.locator(toolArgs.selector).first());
+                        attempts.push(() => this.page.getByPlaceholder(toolArgs.selector).first());
+                    }
+                    let typed = false;
+                    for (const makeLoc of attempts) {
+                        try {
+                            const loc = makeLoc();
+                            if (!(await loc.count().catch(() => 0))) continue;
+                            await this.clickPulse(await this.pointAt(loc));
+                            await loc.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {});
+                            await loc.fill(toolArgs.text, { timeout: 3000 });
+                            typed = true;
+                            break;
+                        } catch { /* next strategy */ }
+                    }
+                    if (!typed) {
+                        console.log('  ❌ Type failed: input not found or not editable');
+                        return { ok: false, error: 'Input not found or not editable' };
+                    }
+                    await this.page.waitForTimeout(300);
                     break;
                 }
 
@@ -647,6 +966,69 @@ export class Navigator {
         }
     }
 
+    /**
+     * Capture the outcome after an action execution by comparing against a previous snapshot.
+     */
+    async getActionOutcome(snapshot = {}) {
+        try {
+            const { prevUrl = '', prevTitle = '' } = snapshot;
+
+            // Waits up to 2000ms for either load or networkidle (whichever comes first, both with try/catch)
+            await Promise.race([
+                this.page?.waitForLoadState('load', { timeout: 2000 }).catch(() => {}),
+                this.page?.waitForLoadState('networkidle', { timeout: 2000 }).catch(() => {})
+            ]).catch(() => {});
+
+            const newUrl = this.page?.url() || '';
+            const newTitle = await this.page?.title().catch(() => '') || '';
+
+            const urlChanged = Boolean(prevUrl && newUrl && prevUrl !== newUrl);
+            const titleChanged = Boolean(prevTitle && newTitle && prevTitle !== newTitle);
+
+            // Dialog visible if any [role="dialog"], [role="alertdialog"], .modal, .drawer is visible
+            const dialogInfo = await this.page?.evaluate(() => {
+                const dialogSelectors = '[role="dialog"], [role="alertdialog"], .modal, .drawer';
+                const dialogs = Array.from(document.querySelectorAll(dialogSelectors));
+                for (const d of dialogs) {
+                    const rect = d.getBoundingClientRect();
+                    const style = window.getComputedStyle(d);
+                    if (
+                        style.display !== 'none' &&
+                        style.visibility !== 'hidden' &&
+                        parseFloat(style.opacity || '1') > 0 &&
+                        rect.width > 0 &&
+                        rect.height > 0
+                    ) {
+                        const text = (d.innerText || d.textContent || '').trim().replace(/\s+/g, ' ');
+                        return {
+                            visible: true,
+                            text: text.substring(0, 100)
+                        };
+                    }
+                }
+                return { visible: false, text: '' };
+            }).catch(() => ({ visible: false, text: '' })) || { visible: false, text: '' };
+
+            return {
+                urlChanged,
+                newUrl,
+                titleChanged,
+                newTitle,
+                dialogVisible: Boolean(dialogInfo.visible),
+                dialogText: dialogInfo.text || ''
+            };
+        } catch (err) {
+            return {
+                urlChanged: false,
+                newUrl: this.page?.url() || '',
+                titleChanged: false,
+                newTitle: '',
+                dialogVisible: false,
+                dialogText: ''
+            };
+        }
+    }
+
     getCurrentUrl() {
         return this.page?.url() || '';
     }
@@ -662,6 +1044,7 @@ export class Navigator {
     }
 
     async close() {
+        await this.stopLiveView();
         if (this.room) {
             await this.room.disconnect();
             this.room = null;

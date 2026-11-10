@@ -1260,3 +1260,158 @@ body, html {
     border-bottom: 1px solid var(--bg-card-border);
   }
 }
+
+/* ══════════ Proactive nudge (tooltip text from the host page) ══════════ */
+.tooltip-nudge {
+  font-size: 12px;
+  line-height: 1.4;
+  color: #e2e8f0;
+  margin-top: 3px;
+}
+
+/* ══════════ Human handover ══════════ */
+.talk-human-btn {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: rgba(16, 185, 129, 0.14);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  color: #6ee7b7;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+.talk-human-btn:hover {
+  background: rgba(16, 185, 129, 0.24);
+}
+.badge-ai.badge-live {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: rgba(239, 68, 68, 0.45);
+  color: #fca5a5;
+}
+.handover-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--bg-card-border);
+}
+.handover-pending {
+  background: rgba(245, 158, 11, 0.1);
+  color: #fcd34d;
+}
+.handover-live {
+  background: rgba(239, 68, 68, 0.1);
+  color: #fecaca;
+  font-weight: 600;
+}
+.handover-info {
+  background: rgba(148, 163, 184, 0.1);
+  color: var(--text-muted);
+}
+.handover-banner > span:nth-child(2) {
+  flex: 1;
+}
+.handover-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(252, 211, 77, 0.35);
+  border-top-color: #fcd34d;
+  animation: spinFast 0.8s linear infinite;
+  flex-shrink: 0;
+}
+.handover-banner-btn {
+  background: transparent;
+  border: 1px solid rgba(252, 211, 77, 0.4);
+  color: #fcd34d;
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.human-name-tag {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  background: rgba(10, 11, 16, 0.75);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 8px;
+  z-index: 3;
+}
+.bubble-human {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+/* ══════════ Shoppable product card ══════════ */
+.product-card-body {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.product-card-image {
+  width: 84px;
+  height: 84px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+}
+.product-card-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.product-card-price {
+  font-size: 15px;
+  font-weight: 800;
+  color: #6ee7b7;
+  margin: 2px 0 4px;
+}
+.product-card .card-desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+@media (max-width: 768px) {
+  .talk-human-btn {
+    padding: 0 8px;
+    font-size: 11px;
+  }
+  .agent-subtitle {
+    display: none;
+  }
+}
+
+/* ══════════ Docked during a call (on-site guidance) ══════════ */
+.tooltip-title .live-dot {
+  display: inline-block;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.tooltip-nudge {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tooltip-resume-audio {
+  margin-top: 6px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  background: rgba(16, 185, 129, 0.15);
+  color: #6ee7b7;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
