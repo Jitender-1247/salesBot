@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import BackButton from '../components/BackButton';
 import AgentSettings from '../components/AgentSettings';
+import KnowledgeBase from '../components/KnowledgeBase';
 import api from '../api';
 
 // Exploration sometimes stores the summary as a JSON string ({ summary, keyValueProposition, ... })
@@ -34,11 +35,14 @@ export default function ProductDetail() {
 
     useEffect(() => {
         fetchProduct();
-        const interval = setInterval(() => {
-            if (product?.explorationStatus === 'exploring') fetchProduct();
-        }, 5000);
-        return () => clearInterval(interval);
     }, [id]);
+
+    // While exploring, refresh every 5s until it's done (reads the current status, not the first render's)
+    useEffect(() => {
+        if (product?.explorationStatus !== 'exploring') return;
+        const interval = setInterval(fetchProduct, 5000);
+        return () => clearInterval(interval);
+    }, [product?.explorationStatus, id]);
 
     const fetchProduct = async () => {
         try {
@@ -100,7 +104,7 @@ export default function ProductDetail() {
             fetchProduct();
         } catch (err) {
             console.log('Error retrying exploration:', err);
-            alert('Failed to retry. Please try again.');
+            alert(err.response?.data?.message || 'Failed to start exploration. Please try again.');
         } finally {
             setRetrying(false);
         }
@@ -271,6 +275,13 @@ export default function ProductDetail() {
                         </div>
                     )}
                 </div>
+
+                {/* Knowledge base (RAG): documents, test questions, exploration timing */}
+                <KnowledgeBase
+                    productId={id}
+                    explorationStatus={product.explorationStatus}
+                    onReexplore={retryExploration}
+                />
 
                 {/* Persona, catalog, nudges, handover */}
                 <AgentSettings

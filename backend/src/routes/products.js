@@ -9,6 +9,9 @@ import { checkUrl } from '../utils/urlSafety.js';
 import { optionalString, objectIdParam } from '../utils/validate.js';
 import { INDUSTRY_PRESETS, DEFAULT_VOICES } from '../agent/persona.js';
 import { isRecordingConfigured } from '../call/recording.js';
+import KnowledgeChunk from '../models/KnowledgeChunk.js';
+import KnowledgeDocument from '../models/KnowledgeDocument.js';
+import { syncDerivedChunks } from '../agent/rag/knowledge.js';
 
 const router = express.Router();
 router.param('id', objectIdParam);
@@ -290,8 +293,13 @@ router.patch('/:id/config', protect, async (req, res) => {
     const { update, error } = parseAgentConfig(req.body || {});
     if (error) return res.status(400).json({ message: error });
 
-    const saved = await Product.findByIdAndUpdate(product._id, update, { new: true, runValidators: true })
-      .select('name persona catalog nudges handover recordingEnabled');
+    const updated = await Product.findByIdAndUpdate(product._id, update, { new: true, runValidators: true });
+    // Catalog items are searchable knowledge: keep the index in step
+    if (update.catalog) {
+      await syncDerivedChunks(updated).catch(err => console.warn('⚠️ [RAG] catalog reindex failed:', err.message));
+    }
+    const { name, persona, catalog, nudges, handover, recordingEnabled } = updated.toObject();
+    const saved = { name, persona, catalog, nudges, handover, recordingEnabled };
     res.json(saved);
   } catch (err) {
     console.error('Save agent config error:', err);
@@ -329,6 +337,9 @@ router.post('/:id/explore', protect, async (req, res) => {
     });
 
     if (!product) return res.status(404).json({ message: 'Product not found' });
+    if (product.explorationStatus === 'exploring') {
+      return res.status(409).json({ message: 'Exploration is already running for this product' });
+    }
 
     // Reset status to exploring
     await Product.findByIdAndUpdate(product._id, {
@@ -363,6 +374,8 @@ router.delete('/:id', protect, async (req, res) => {
 
     await Call.deleteMany({ productId: product._id, clientId: req.clientId });
     await Lead.deleteMany({ productId: product._id, clientId: req.clientId });
+    await KnowledgeChunk.deleteMany({ productId: product._id });
+    await KnowledgeDocument.deleteMany({ productId: product._id });
     await Product.deleteOne({ _id: product._id });
 
     res.json({ message: 'Bot removed successfully' });

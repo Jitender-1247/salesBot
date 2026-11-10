@@ -10,6 +10,7 @@ import { dirname, join } from 'path';
 import { initSocket } from './socket/index.js';
 import authRoutes from './routes/auth.js';
 import productRoutes from './routes/products.js';
+import knowledgeRoutes from './routes/knowledge.js';
 import callRoutes from './routes/calls.js';
 import embedRoutes from './routes/embed.js';
 import avatarRoutes from './routes/avatar.js';
@@ -75,6 +76,8 @@ app.use(helmet({
 }));
 // D-ID streaming sends base64 audio; everything else is small JSON
 app.use('/api/did-stream', express.json({ limit: '10mb' }));
+// Knowledge documents (pasted / uploaded text) can be a few hundred KB
+app.use('/api/products/:id/knowledge', express.json({ limit: '2mb' }));
 app.use(express.json({ limit: '200kb' }));
 
 // Rate limiting — protect public API routes from abuse under high traffic
@@ -116,6 +119,7 @@ app.use('/widget2', express.static(join(__dirname, '../../frontend/widget2/dist'
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/products/:id/knowledge', knowledgeRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/calls', callRoutes);
 app.use('/api/embed', embedRoutes);

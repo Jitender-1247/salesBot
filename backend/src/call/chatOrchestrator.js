@@ -2,6 +2,7 @@ import { transcribeAudio } from '../agent/stt.js';
 import { streamSpeech, streamPcmSpeech, PCM_SAMPLE_RATE } from '../agent/tts.js';
 import { thinkChat } from '../agent/brain/chatBrain.js';
 import { resolvePersona } from '../agent/persona.js';
+import { retrieve, formatKnowledge, ensureIndexed } from '../agent/rag/knowledge.js';
 import { RoomServiceClient } from 'livekit-server-sdk';
 import Product from '../models/Product.js';
 import Call from '../models/Call.js';
@@ -204,6 +205,9 @@ export class ChatOrchestrator {
             this.startTime = Date.now();
             this.markLoaded();
 
+            // Knowledge base: products created before RAG get their passages on first use
+            await ensureIndexed(this.product).catch(err => console.warn('⚠️ [RAG] ensureIndexed:', err.message));
+
             console.log(`💬 [ChatOrchestrator] 1-on-1 Avatar Chat active for ${this.product.name} as ${this.agentName}`);
 
             this.scheduleSessionLimit(ChatOrchestrator.MAX_SESSION_MS);
@@ -356,13 +360,21 @@ export class ChatOrchestrator {
             this.io.to(this.callId).emit('agent-thinking', true);
             this.io.to(this.callId).emit('agent-state', 'processing');
 
+            const rag = await this.retrieveKnowledge(transcript);
+
             const decision = await thinkChat(
                 transcript,
                 this.currentLanguage,
                 this.product.knowledgeMap,
                 this.conversationHistory,
                 this.product.name,
-                { persona: this.persona, catalog: this.catalog, handoverAvailable: this.canHandover(), hostPage: this.hostPage }
+                {
+                    persona: this.persona,
+                    catalog: rag?.catalog || this.catalog,
+                    handoverAvailable: this.canHandover(),
+                    hostPage: this.hostPage,
+                    knowledge: rag?.knowledge
+                }
             );
             const hostActions = (decision.hostActions || []).map(a => this.validateHostAction(a)).filter(Boolean);
 
@@ -428,6 +440,52 @@ export class ChatOrchestrator {
                 this.pendingUserTurn = null;
                 await this.handleAudioBlob(turn.audioBuffer);
             }
+        }
+    }
+
+    // ── Knowledge base (RAG) ──
+
+    static CATALOG_IN_PROMPT = 25; // larger catalogs: only the items relevant to the question go in the prompt
+
+    /** Index version, re-read at most once a minute so newly added documents show up mid-call. */
+    async knowledgeVersion() {
+        if (this.kbVersion === undefined || Date.now() - (this.kbVersionAt || 0) > 60000) {
+            const p = await Product.findById(this.productId).select('knowledgeIndex.version').lean().catch(() => null);
+            this.kbVersion = p?.knowledgeIndex?.version || 0;
+            this.kbVersionAt = Date.now();
+        }
+        return this.kbVersion;
+    }
+
+    /**
+     * Passages relevant to this question (plus the last exchange, for follow-ups like "and the second one?"),
+     * and for big catalogs the matching items. Returns null on any problem, so the turn still works without RAG.
+     */
+    async retrieveKnowledge(question) {
+        if (!this.product) return null;
+        const t0 = Date.now();
+        try {
+            const version = await this.knowledgeVersion();
+            if (!version) return null;
+            const recent = this.conversationHistory.filter(m => m.role !== 'system').slice(-3, -1).map(m => m.content).join('\n');
+
+            const passages = await retrieve(this.productId, {
+                question, context: recent, limit: 6, types: ['page', 'document', 'map', 'extra'], version
+            });
+
+            let catalog = this.catalog;
+            if (this.catalog.length > ChatOrchestrator.CATALOG_IN_PROMPT) {
+                const hits = await retrieve(this.productId, { question, context: recent, limit: 12, types: ['catalog'], version });
+                const bySku = new Map(this.catalog.map(item => [item.sku, item]));
+                catalog = hits.map(h => bySku.get(h.sourceId)).filter(Boolean);
+                if (!catalog.length) catalog = this.catalog.slice(0, 10);
+            }
+
+            console.log(`📚 [RAG] ${passages.length} passages${catalog !== this.catalog ? `, ${catalog.length} catalog items` : ''} in ${Date.now() - t0}ms`);
+            return { knowledge: formatKnowledge(passages), catalog, passages };
+        } catch (err) {
+            console.warn('⚠️ [RAG] retrieval failed, answering without it:', err.message);
+            return null;
         }
     }
 
