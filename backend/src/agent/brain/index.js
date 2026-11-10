@@ -121,6 +121,20 @@ export const navigationTools = [
     {
         type: 'function',
         function: {
+            name: 'open_shortcut',
+            description: 'Open a known in-page feature from KNOWN SHORTCUTS (goes to its page if needed and clicks it). Most reliable way to show a listed feature.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    shortcutId: { type: 'string', description: 'Shortcut id from KNOWN SHORTCUTS, e.g. "S3"' }
+                },
+                required: ['shortcutId']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
             name: 'scroll_dir',
             description: 'Scroll the browser viewport up or down',
             parameters: {
@@ -240,6 +254,8 @@ export function buildActionFeedback(outcomes) {
             label = `type_text into "${args.selector}"`;
         } else if (tool === 'scroll_dir') {
             label = `scroll_dir ${args.direction}`;
+        } else if (tool === 'open_shortcut') {
+            label = `open_shortcut ${args.shortcutId || ''}`;
         }
 
         if (res.ok === false) {
@@ -272,7 +288,7 @@ export function buildActionFeedback(outcomes) {
  * Build a structured system prompt with numbered element list and page outline.
  * This gives the LLM precise targets for clicking — like a real browser agent.
  */
-function buildSystemPrompt(language, knowledgeMap, productName, pageContext) {
+function buildSystemPrompt(language, knowledgeMap, productName, pageContext, shortcuts = []) {
     const lang = language || 'en';
     const langName = languageNames[lang] || 'English';
     const persona = culturalPersona[lang] || culturalPersona.en;
@@ -358,6 +374,14 @@ function buildSystemPrompt(language, knowledgeMap, productName, pageContext) {
         }
     }
 
+    // Recorded / learned ways to open in-page features: one deterministic call instead of picking elements
+    if (shortcuts.length > 0) {
+        currentPageSection += '\n\nKNOWN SHORTCUTS (verified ways to open a feature; prefer open_shortcut / [SHORTCUT: Sn] when one matches):';
+        for (const sc of shortcuts) {
+            currentPageSection += `\n[${sc.id}] ${sc.name} → ${sc.pageUrl}`;
+        }
+    }
+
     return `You are Sofia, a friendly AI sales demo specialist for ${productName}.
 You are on a live voice call, navigating a real browser to demo the product.
 Your goal is not just to show pages — you are SELLING. Highlight value, solve pain points, and create excitement.
@@ -397,12 +421,14 @@ ${currentPageSection}
 2. FUNCTION CALLING: You may call up to 4 tools in one turn for steps on THIS page (e.g. type_text then click_element "Search"). Element ids only exist for the current page: after navigate_to (or a click that opens a new page) stop; you will get the new page's elements in the next step.
 3. After function calls execute, you will receive a system message with what changed. Use that to continue.
 4. When clicking, always use dataZyxId matching the [N] id number from INTERACTABLE ELEMENTS list. This is the most reliable way to click.
-5. If no browser interaction is required, just provide your spoken response.
+5. If a KNOWN SHORTCUT matches what the user wants to see, use open_shortcut with its id (it also opens the right page first).
+6. If no browser interaction is required, just provide your spoken response.
 
 FALLBACK ACTION TAGS (for models without native tool calling):
 • [NAVIGATE: full_url] — Go to a different page. Use exact URLs from PRODUCT PAGES above.
 • [CLICK: #id] — Click element by its ID number from the INTERACTABLE ELEMENTS list above. PREFERRED method.
 • [CLICK: visible text] — Click by visible text (fallback if no ID match).
+• [SHORTCUT: S3] — Open a feature from KNOWN SHORTCUTS (goes to its page and clicks it).
 • [SCROLL_DOWN] — Scroll the page down.
 • [SCROLL_UP] — Scroll the page up.
 • [TYPE: css_selector | text to type] — Type text into an input field.
@@ -420,8 +446,8 @@ FALLBACK ACTION TAGS (for models without native tool calling):
 /no_think`.trim();
 }
 
-export async function think(transcript, language, knowledgeMap, conversationHistory, productName, pageContext) {
-    const systemPrompt = buildSystemPrompt(language, knowledgeMap, productName, pageContext);
+export async function think(transcript, language, knowledgeMap, conversationHistory, productName, pageContext, shortcuts = []) {
+    const systemPrompt = buildSystemPrompt(language, knowledgeMap, productName, pageContext, shortcuts);
 
     const messages = [
         { role: 'system', content: systemPrompt },
@@ -660,6 +686,14 @@ export async function think(transcript, language, knowledgeMap, conversationHist
             });
         }
 
+        // Parse [SHORTCUT: S3]
+        const shortcutRegex = /\[SHORTCUT:\s*(S\d+)\s*\]/gi;
+        while ((match = shortcutRegex.exec(content)) !== null) {
+            toolCalls.push({
+                function: { name: 'open_shortcut', arguments: JSON.stringify({ shortcutId: match[1].toUpperCase() }) }
+            });
+        }
+
         // Parse [SCROLL_DOWN]
         if (/\[SCROLL_DOWN\]/i.test(content)) {
             toolCalls.push({
@@ -678,6 +712,7 @@ export async function think(transcript, language, knowledgeMap, conversationHist
         let spokenText = content
             .replace(/\[NAVIGATE:\s*.+?\]/gi, '')
             .replace(/\[CLICK:\s*.+?\]/gi, '')
+            .replace(/\[SHORTCUT:\s*.+?\]/gi, '')
             .replace(/\[TYPE:\s*.+?\]/gi, '')
             .replace(/\[SCROLL_DOWN\]/gi, '')
             .replace(/\[SCROLL_UP\]/gi, '')

@@ -76,7 +76,15 @@ function formatCatalog(catalog = []) {
  * The persona (name, role, tone, goals) comes from the product's settings.
  * No browser navigation; the only actions are product cards and human handover.
  */
-export function buildChatSystemPrompt(language, knowledgeMap, productName, { persona, catalog = [], handoverAvailable = false } = {}) {
+function formatHostPage(hostPage) {
+    const lines = [`URL: ${hostPage.url}`, `Title: ${hostPage.title || ''}`];
+    if (hostPage.headings?.length) lines.push(`Sections: ${hostPage.headings.join(' | ')}`);
+    if (hostPage.links?.length) lines.push(`Links: ${hostPage.links.map(l => `"${l.text}" → ${l.href}`).join(' | ')}`);
+    if (hostPage.buttons?.length) lines.push(`Buttons: ${hostPage.buttons.join(' | ')}`);
+    return lines.join('\n');
+}
+
+export function buildChatSystemPrompt(language, knowledgeMap, productName, { persona, catalog = [], handoverAvailable = false, hostPage = null } = {}) {
     const lang = language || 'en';
     const langName = languageNames[lang] || 'English';
     const culture = culturalPersona[lang] || culturalPersona.en;
@@ -112,7 +120,18 @@ export function buildChatSystemPrompt(language, knowledgeMap, productName, { per
         ? `\n═══ PRODUCT CATALOG (you can show these as cards) ═══\n${formatCatalog(catalog)}\n`
         : '';
 
+    const hostPageSection = hostPage
+        ? `\n═══ VISITOR'S CURRENT PAGE (on this website; you can guide them around it) ═══\n${formatHostPage(hostPage)}\n`
+        : '';
+
     const actionRules = [];
+    if (hostPage) {
+        actionRules.push('- You can guide the visitor around the website they are on (at most ONE of these per reply, at the very end):\n'
+            + '  [SCROLL_TO: exact section heading from Sections] scrolls their page to that section and highlights it.\n'
+            + '  [HIGHLIGHT: exact link or button text] points out a link or button on their page.\n'
+            + '  [OPEN_PAGE: path from Links] takes them to another page of this site; the call continues there. Use only paths listed in Links.\n'
+            + '  Say what you are doing ("Let me take you to pricing") and never read the tag aloud.');
+    }
     if (catalog.length) {
         actionRules.push('- When recommending a specific catalog item, append [SHOW_PRODUCT: SKU] at the very end of your reply (max 2 per reply, exact SKUs from the catalog only). The visitor sees a product card with a buy/view button. Never read the SKU or the tag aloud.');
     }
@@ -146,7 +165,7 @@ ${extraKnowledgeSection}
 FEATURES & CAPABILITIES:
 ${featureSummary || 'No specific page details provided.'}
 ${demoFlowSection}
-${catalogSection}
+${catalogSection}${hostPageSection}
 ═══ CONVERSATION RULES ═══
 1. Keep each spoken turn CONCISE (1 to 3 sentences). Overly long paragraphs feel unnatural over voice.
 2. Directly answer the user's specific inquiry first using the stored knowledge, then offer value or insight.
@@ -160,10 +179,11 @@ ${actionRules.join('\n')}
 /no_think`.trim();
 }
 
-/** Pull [SHOW_PRODUCT: x] / [HANDOVER] actions out of the reply, leaving clean speech. */
+/** Pull [SHOW_PRODUCT: x] / [HANDOVER] / on-site guidance actions out of the reply, leaving clean speech. */
 export function extractActions(text, catalog = []) {
     const skus = new Set(catalog.map(c => c.sku));
     const showProducts = [];
+    const hostActions = [];
     let handover = false;
 
     const speech = text
@@ -172,10 +192,14 @@ export function extractActions(text, catalog = []) {
             return '';
         })
         .replace(/\[HANDOVER\]/gi, () => { handover = true; return ''; })
+        .replace(/\[(SCROLL_TO|HIGHLIGHT|OPEN_PAGE):\s*([^\]]+?)\s*\]/gi, (_, kind, target) => {
+            if (hostActions.length < 1) hostActions.push({ kind: kind.toLowerCase(), target: target.trim().slice(0, 300) });
+            return '';
+        })
         .replace(/\s{2,}/g, ' ')
         .trim();
 
-    return { speech, showProducts, handover };
+    return { speech, showProducts, handover, hostActions };
 }
 
 /**
@@ -264,13 +288,14 @@ export async function thinkChat(transcript, language, knowledgeMap, conversation
             .replace(/\[WAIT\]/gi, '')
             .trim();
 
-        const { speech, showProducts, handover } = extractActions(cleanText, options.catalog);
+        const { speech, showProducts, handover, hostActions } = extractActions(cleanText, options.catalog);
         console.log(`\n💬 [ChatBrain] ${options.persona?.name || 'Agent'} said: "${speech}"${showProducts.length ? ` | products: ${showProducts.join(', ')}` : ''}${handover ? ' | HANDOVER' : ''}\n`);
 
         return {
             content: speech,
             showProducts,
-            handover: handover && Boolean(options.handoverAvailable)
+            handover: handover && Boolean(options.handoverAvailable),
+            hostActions: options.hostPage ? hostActions : []
         };
 
     } catch (err) {
@@ -278,7 +303,8 @@ export async function thinkChat(transcript, language, knowledgeMap, conversation
         return {
             content: `I'd love to tell you more about ${productName}. What specific feature or question can I help you with?`,
             showProducts: [],
-            handover: false
+            handover: false,
+            hostActions: []
         };
     }
 }

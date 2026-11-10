@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import ChatView from './components/ChatView';
-import { unlockAudio } from './audio/PcmStreamPlayer';
+import { unlockAudio, audioLocked } from './audio/PcmStreamPlayer';
 
 const BACKEND_URL = import.meta.env.PROD
     ? ''
@@ -18,10 +18,36 @@ function postToHost(message) {
     if (IS_EMBEDDED) window.parent.postMessage({ source: 'ai-video-agent', ...message }, '*');
 }
 
+// When the agent opens another page of the merchant's site, this iframe reloads with it.
+// The running call is kept here and resumed (the backend holds it ~30s for a reconnect).
+const SAVED_CALL_MAX_AGE_MS = 25000;
+const savedCallKey = (pid) => `ai-video-agent-call:${pid}`;
+
+function loadSavedCall(pid) {
+    try {
+        const saved = JSON.parse(sessionStorage.getItem(savedCallKey(pid)) || 'null');
+        if (saved?.callData?.callId && Date.now() - saved.savedAt < SAVED_CALL_MAX_AGE_MS) return saved;
+        sessionStorage.removeItem(savedCallKey(pid));
+    } catch { /* storage blocked: no resume */ }
+    return null;
+}
+
+function saveCall(pid, callData, userForm) {
+    try {
+        sessionStorage.setItem(savedCallKey(pid), JSON.stringify({ callData, userForm, savedAt: Date.now() }));
+    } catch { /* storage blocked */ }
+}
+
+function clearSavedCall(pid) {
+    try { sessionStorage.removeItem(savedCallKey(pid)); } catch { /* storage blocked */ }
+}
+
 export default function App() {
     // URL param for product ID
     const urlParams = new URLSearchParams(window.location.search);
     const productId = urlParams.get('pid') || 'test-product';
+    // A call carried over from the previous page of the merchant's site (on-site guidance)
+    const [restored] = useState(() => (IS_EMBEDDED ? loadSavedCall(productId) : null));
 
     // Persona, nudges and handover settings from the dashboard
     const [config, setConfig] = useState(null);
@@ -34,14 +60,20 @@ export default function App() {
     const [nudgeMessage, setNudgeMessage] = useState('');
 
     // Screen inside widget: 'landing', 'loading', 'calling', 'end', 'queued'
-    const [screen, setScreen] = useState('landing');
+    const [screen, setScreen] = useState(restored ? 'calling' : 'landing');
     const [socket, setSocket] = useState(null);
-    const [callData, setCallData] = useState(null);
+    const socketRef = useRef(null);
+    const [callData, setCallData] = useState(restored?.callData || null);
     // Latest session, readable from socket handlers (which are registered once)
-    const callDataRef = useRef(null);
+    const callDataRef = useRef(restored?.callData || null);
     useEffect(() => { callDataRef.current = callData; }, [callData]);
     const [errorMessage, setErrorMessage] = useState('');
-    const [userForm, setUserForm] = useState({ name: '', email: '' });
+    const [userForm, setUserForm] = useState(restored?.userForm || { name: '', email: '' });
+
+    // On-site guidance: latest outline of the visitor's page, what the agent is saying while docked
+    const hostContextRef = useRef(null);
+    const [guideText, setGuideText] = useState(restored ? 'I\'m still here with you.' : '');
+    const [voiceLocked, setVoiceLocked] = useState(false);
     const [queueInfo, setQueueInfo] = useState(null);
 
     // Load widget config
@@ -78,7 +110,16 @@ export default function App() {
         if (IS_EMBEDDED) {
             const onMessage = (e) => {
                 if (e.source !== window.parent || e.data?.source !== 'ai-video-agent-host') return;
-                if (e.data.type === 'nudge') applyNudge(e.data);
+                const { type } = e.data;
+                if (type === 'nudge' && !callDataRef.current) applyNudge(e.data);
+                if (type === 'page-context') {
+                    hostContextRef.current = e.data.context;
+                    const active = callDataRef.current;
+                    if (active?.callId) socketRef.current?.emit('host-page-context', { callId: active.callId, context: e.data.context });
+                }
+                if (type === 'navigating' && callDataRef.current) {
+                    saveCall(productId, callDataRef.current, userFormRef.current);
+                }
             };
             window.addEventListener('message', onMessage);
             postToHost({ type: 'ready' });
@@ -91,12 +132,56 @@ export default function App() {
         return () => clearTimeout(t);
     }, [config]);
 
+    const userFormRef = useRef(userForm);
+    useEffect(() => { userFormRef.current = userForm; }, [userForm]);
+
+    // Keep the running call saved (fresh timestamp when this page goes away) so it survives a page change
+    useEffect(() => {
+        if (!IS_EMBEDDED) return;
+        if (screen === 'calling' && callData?.callId) {
+            saveCall(productId, callData, userForm);
+            const onHide = () => saveCall(productId, callDataRef.current, userFormRef.current);
+            window.addEventListener('pagehide', onHide);
+            return () => window.removeEventListener('pagehide', onHide);
+        }
+        if (screen === 'end' || screen === 'landing') clearSavedCall(productId);
+    }, [screen, callData, userForm, productId]);
+
+    // A call started (or resumed): give the agent the visitor's current page
+    useEffect(() => {
+        if (!IS_EMBEDDED || !callData?.callId || !socket) return;
+        if (hostContextRef.current) socket.emit('host-page-context', { callId: callData.callId, context: hostContextRef.current });
+        postToHost({ type: 'request-page-context' });
+    }, [callData?.callId, socket]);
+
+    // While docked mid-call, show whether the browser is holding the voice back (common right after a page change)
+    useEffect(() => {
+        if (screen !== 'calling') return;
+        const t = setInterval(() => setVoiceLocked(audioLocked()), 1000);
+        const unlock = () => { unlockAudio(); setVoiceLocked(audioLocked()); };
+        window.addEventListener('pointerdown', unlock);
+        return () => { clearInterval(t); window.removeEventListener('pointerdown', unlock); };
+    }, [screen]);
+
     // Initialize socket connection
     useEffect(() => {
         const s = io(BACKEND_URL, {
             transports: ['websocket', 'polling']
         });
         setSocket(s);
+        socketRef.current = s;
+
+        // On-site guidance: dock to the bubble so the visitor sees their page, then let the host page act
+        s.on('host-action', (action) => {
+            if (!IS_EMBEDDED) return;
+            setIsExpanded(false);
+            if (action.kind === 'open_page') saveCall(productId, callDataRef.current, userFormRef.current);
+            postToHost({ type: 'host-action', action });
+        });
+
+        s.on('agent-speaking', (data) => {
+            if (data?.speaking && data.text) setGuideText(data.text);
+        });
 
         s.on('connect', () => {
             console.log('✅ [Widget3] Socket connected');
@@ -111,6 +196,7 @@ export default function App() {
 
         s.on('session-expired', () => {
             callDataRef.current = null;
+            clearSavedCall(productId);
             setScreen('end');
         });
 
@@ -201,7 +287,24 @@ export default function App() {
                             ✕
                         </button>
                         <div className="tooltip-content" onClick={() => setIsExpanded(true)}>
-                            {nudgeMessage ? (
+                            {screen === 'calling' ? (
+                                <>
+                                    <div className="tooltip-title">
+                                        <span className="live-dot" /> {persona.name} is guiding you
+                                    </div>
+                                    {guideText && <div className="tooltip-nudge">“{guideText}”</div>}
+                                    {voiceLocked && (
+                                        <button
+                                            type="button"
+                                            className="tooltip-resume-audio"
+                                            onClick={(e) => { e.stopPropagation(); unlockAudio(); setVoiceLocked(audioLocked()); }}
+                                        >
+                                            🔊 Tap to resume voice
+                                        </button>
+                                    )}
+                                    <div className="tooltip-sub">Tap to open the video chat</div>
+                                </>
+                            ) : nudgeMessage ? (
                                 <>
                                     <div className="tooltip-title">{persona.name}</div>
                                     <div className="tooltip-nudge">{nudgeMessage}</div>

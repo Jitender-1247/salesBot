@@ -2,6 +2,7 @@ import { transcribeAudio } from '../agent/stt.js';
 import { speak } from '../agent/tts.js';
 import { think, buildActionFeedback } from '../agent/brain/index.js';
 import { Navigator } from '../agent/navigator/index.js';
+import { shortcutsForPrompt, recordLearnedRoute, pageKey } from '../agent/routes.js';
 import { decrypt, decryptIfEncrypted } from '../utils/encryption.js';
 import { generateToken } from '../call/room.js';
 import { RoomServiceClient } from 'livekit-server-sdk';
@@ -323,6 +324,7 @@ export class CallOrchestrator {
 
                 // Get current page context so the LLM knows where it is
                 const pageContext = await this.navigator.getPageContext();
+                const shortcuts = shortcutsForPrompt(this.product.routes || [], pageContext?.url);
 
                 const decision = await think(
                     stepCount === 1 ? transcript : '(Continue: read the action results above and CURRENT PAGE STATE, then finish what the user asked. If it is already done, confirm it in one short sentence and call no tools.)',
@@ -330,7 +332,8 @@ export class CallOrchestrator {
                     this.product.knowledgeMap,
                     this.conversationHistory,
                     this.product.name,
-                    pageContext  // pass page context to brain
+                    pageContext,  // pass page context to brain
+                    shortcuts
                 );
 
                 this.io.to(this.callId).emit('agent-thinking', false);
@@ -374,9 +377,15 @@ export class CallOrchestrator {
                         const prevUrl = this.navigator.getCurrentUrl();
                         const prevTitle = await this.navigator.page?.title().catch(() => '') || '';
 
-                        const result = await this.navigator.executeAction(toolName, toolArgs);
+                        // A shortcut id only means something for this turn's list: hand the navigator the route itself
+                        const actionArgs = toolName === 'open_shortcut'
+                            ? { ...toolArgs, route: shortcuts.find(sc => sc.id === String(toolArgs.shortcutId || '').toUpperCase()) }
+                            : toolArgs;
+
+                        const result = await this.navigator.executeAction(toolName, actionArgs);
                         const outcome = await this.navigator.getActionOutcome({ prevUrl, prevTitle });
                         const fullResult = { ...result, ...outcome };
+                        if (result?.ok !== false) this.learnRoute(toolName, actionArgs, pageContext, prevUrl, fullResult);
 
                         outcomes.push({
                             tool: toolName,
@@ -546,6 +555,37 @@ export class CallOrchestrator {
             if (this.currentSpeechController && this.currentSpeechController.signal.aborted) {
                 this.currentSpeechController = null;
             }
+        }
+    }
+
+    /**
+     * Remember clicks that opened something new (a page outside the knowledge map, or a dialog),
+     * and count successful shortcut uses, so future demos can open them in one deterministic step.
+     */
+    learnRoute(toolName, args, pageContext, prevUrl, outcome) {
+        try {
+            const known = (this.product.knowledgeMap?.pages || []).map(p => pageKey(p.url));
+            let route = null;
+            if (toolName === 'open_shortcut' && args.route) {
+                route = { pageUrl: args.route.pageUrl, role: args.route.role, label: args.route.label, toUrl: outcome.urlChanged ? outcome.newUrl : '' };
+            } else if (toolName === 'click_element' && args.dataZyxId !== undefined) {
+                const opensNewPage = outcome.urlChanged && !known.includes(pageKey(outcome.newUrl));
+                if (!opensNewPage && !outcome.dialogVisible) return;
+                const el = pageContext?.elements?.find(e => String(e.id) === String(args.dataZyxId));
+                if (!el || String(el.id).startsWith('f')) return; // frame elements can't be found again by role
+                const page = (this.product.knowledgeMap?.pages || []).find(p => pageKey(p.url) === pageKey(prevUrl));
+                route = { pageUrl: prevUrl, pageName: page?.name, role: el.role, label: el.accessibleName || el.text, toUrl: outcome.urlChanged ? outcome.newUrl : '' };
+            }
+            if (!route) return;
+            this.product.routes = recordLearnedRoute(this.product.routes || [], route);
+            clearTimeout(this.saveRoutesTimer);
+            this.saveRoutesTimer = setTimeout(() => {
+                Product.updateOne({ _id: this.product._id }, { routes: this.product.routes })
+                    .catch(err => console.log('⚠️ Could not save learned shortcut:', err.message));
+            }, 2000);
+            console.log(`🧭 Learned/used shortcut: ${route.label} on ${route.pageUrl}`);
+        } catch (err) {
+            console.log('⚠️ learnRoute error:', err.message);
         }
     }
 

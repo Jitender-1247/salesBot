@@ -20,6 +20,11 @@ export function unlockAudio() {
     return sharedContext;
 }
 
+/** True when the browser is holding audio back until the visitor interacts (e.g. right after a page change). */
+export function audioLocked() {
+    return !sharedContext || sharedContext.state !== 'running';
+}
+
 export default class PcmStreamPlayer {
     constructor({ onStart, onEnd } = {}) {
         this.onStart = onStart;

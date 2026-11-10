@@ -1391,3 +1391,27 @@ body, html {
     display: none;
   }
 }
+
+/* ══════════ Docked during a call (on-site guidance) ══════════ */
+.tooltip-title .live-dot {
+  display: inline-block;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.tooltip-nudge {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tooltip-resume-audio {
+  margin-top: 6px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  background: rgba(16, 185, 129, 0.15);
+  color: #6ee7b7;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}

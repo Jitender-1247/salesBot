@@ -362,8 +362,9 @@ export class ChatOrchestrator {
                 this.product.knowledgeMap,
                 this.conversationHistory,
                 this.product.name,
-                { persona: this.persona, catalog: this.catalog, handoverAvailable: this.canHandover() }
+                { persona: this.persona, catalog: this.catalog, handoverAvailable: this.canHandover(), hostPage: this.hostPage }
             );
+            const hostActions = (decision.hostActions || []).map(a => this.validateHostAction(a)).filter(Boolean);
 
             this.io.to(this.callId).emit('agent-thinking', false);
 
@@ -393,7 +394,13 @@ export class ChatOrchestrator {
                     }
                 }
 
+                // Scroll / highlight while the agent talks about it; opening a page waits until it has finished
+                // speaking, because the visitor's page (and our audio) reloads.
+                for (const action of hostActions.filter(a => a.kind !== 'open_page')) this.sendHostAction(action);
                 await this.agentSpeak(responseText, interruptId);
+                for (const action of hostActions.filter(a => a.kind === 'open_page')) {
+                    if (!(this.interruptRequested && interruptId < this.speechSequence)) this.sendHostAction(action);
+                }
             }
 
             if (decision.handover) {
@@ -422,6 +429,51 @@ export class ChatOrchestrator {
                 await this.handleAudioBlob(turn.audioBuffer);
             }
         }
+    }
+
+    // ── On-site guidance (widget3 embedded on the merchant's site) ──
+
+    /** Outline of the visitor's current page, reported by the embed loader. Untrusted: keep it small and plain. */
+    setHostPage(context) {
+        const str = (v, max) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '');
+        if (!context || typeof context !== 'object') return;
+        let origin = '';
+        try { origin = new URL(str(context.url, 1000)).origin; } catch { return; }
+        if (!/^https?:/.test(origin)) return;
+        this.hostPage = {
+            url: str(context.url, 1000),
+            origin,
+            title: str(context.title, 120),
+            headings: (Array.isArray(context.headings) ? context.headings : []).map(h => str(h, 80)).filter(Boolean).slice(0, 25),
+            links: (Array.isArray(context.links) ? context.links : [])
+                .map(l => ({ text: str(l?.text, 60), href: str(l?.href, 300) }))
+                .filter(l => l.text && l.href.startsWith('/'))
+                .slice(0, 40),
+            buttons: (Array.isArray(context.buttons) ? context.buttons : []).map(b => str(b, 50)).filter(Boolean).slice(0, 20)
+        };
+    }
+
+    /** Only same-site pages may be opened; returns a normalised action or null. */
+    validateHostAction(action) {
+        if (!this.hostPage || !action?.target) return null;
+        if (action.kind === 'open_page') {
+            try {
+                const url = new URL(action.target, this.hostPage.url);
+                if (url.origin !== this.hostPage.origin) return null;
+                return { kind: 'open_page', target: url.href };
+            } catch {
+                return null;
+            }
+        }
+        if (action.kind === 'scroll_to' || action.kind === 'highlight') return { kind: action.kind, target: action.target.slice(0, 120) };
+        return null;
+    }
+
+    sendHostAction(action) {
+        this.hostActionSeq = (this.hostActionSeq || 0) + 1;
+        this.transcript += `\n[Guided visitor: ${action.kind} "${action.target}"]`;
+        this.io.to(this.callId).emit('host-action', { id: this.hostActionSeq, ...action });
+        console.log(`🧭 [Chat ${this.callId}] Host page ${action.kind}: ${action.target}`);
     }
 
     // ── Shoppable product cards ──

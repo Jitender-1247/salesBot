@@ -251,8 +251,12 @@ export function initSocket(server) {
                 socket.activeCallId = callId;
 
                 // Launch browser session in background so audio greeting and UI begin with ZERO delay
-                orchestrator.start().then(() => {
+                orchestrator.start().then(async () => {
                     console.log(`🌐 [${callId}] Browser session fully initialized`);
+                    // Smooth live view from here on (the screenshot loop below covers login and fallback)
+                    await orchestrator.navigator?.startLiveView((frame) => {
+                        io.to(callId).emit('screen-update', { image: frame });
+                    });
                 }).catch(err => {
                     console.warn(`⚠️ [${callId}] Orchestrator startup error:`, err.message);
                 });
@@ -284,6 +288,16 @@ export function initSocket(server) {
                 let frameCount = 0;
                 const screenshotInterval = setInterval(async () => {
                     try {
+                        const nav = orchestrator.navigator;
+                        if (nav?.liveViewActive) {
+                            // Screencast is idle while nothing changes: repeat the last frame now and then
+                            // so a visitor who just reconnected still sees the screen
+                            if (nav.lastFrame && Date.now() - (nav.lastFrameAt || 0) > 4000) {
+                                nav.lastFrameAt = Date.now();
+                                io.to(callId).emit('screen-update', { image: nav.lastFrame });
+                            }
+                            return;
+                        }
                         if (orchestrator.navigator?.page) {
                             const screenshot = await orchestrator.navigator.page.screenshot({
                                 type: 'jpeg',
@@ -295,8 +309,7 @@ export function initSocket(server) {
                             if (frameCount === 1 || frameCount % 10 === 0) {
                                 console.log(`📸 [${callId}] Emitted screenshot frame #${frameCount} (${(screenshot.length / 1024).toFixed(1)} KB)`);
                             }
-                            // Emit directly to caller socket AND to room for reliability
-                            socket.emit('screen-update', { image: rawBase64 });
+                            // The visitor's socket is in the call room (and rejoins it on resume), so one emit reaches it
                             io.to(callId).emit('screen-update', { image: rawBase64 });
                         } else {
                             if (frameCount === 0) {
@@ -525,6 +538,12 @@ export function initSocket(server) {
             if (!ownsCall(socket, callId, 'product-click')) return;
             const orchestrator = chatOrchestrators.get(callId);
             if (orchestrator && typeof sku === 'string') orchestrator.recordProductClick(sku.slice(0, 80));
+        });
+
+        // Visitor's page on the merchant site (widget3 embed): what the agent can scroll to / open
+        socket.on('host-page-context', ({ callId, context } = {}) => {
+            if (!ownsCall(socket, callId, 'host-page-context')) return;
+            chatOrchestrators.get(callId)?.setHostPage(context);
         });
 
         socket.on('request-human', async ({ callId } = {}) => {

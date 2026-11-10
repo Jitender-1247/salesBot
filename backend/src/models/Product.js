@@ -65,6 +65,19 @@ const handoverSchema = new mongoose.Schema({
   waitSeconds: { type: Number, default: 45 }
 }, { _id: false });
 
+// Known way to reach an in-page feature (a tab, a button that opens a panel/dialog, a link):
+// recorded while exploring the product, or learned when a live demo click worked.
+const routeSchema = new mongoose.Schema({
+  name: { type: String, required: true },      // what the agent sees, e.g. "Enterprise (tab on Pricing)"
+  pageUrl: { type: String, required: true },   // page the control lives on
+  role: { type: String, default: '' },         // ARIA role used to find it again (tab, button, link…)
+  label: { type: String, required: true },     // its accessible name
+  toUrl: { type: String, default: '' },        // where it led, if it navigated
+  source: { type: String, enum: ['explored', 'learned'], default: 'explored' },
+  uses: { type: Number, default: 0 },
+  updatedAt: { type: Date, default: Date.now }
+}, { _id: false });
+
 const productSchema = new mongoose.Schema({
   clientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Client', required: true },
   name: { type: String, required: true },
@@ -96,6 +109,7 @@ const productSchema = new mongoose.Schema({
   nudges: { type: nudgesSchema, default: () => ({}) },
   handover: { type: handoverSchema, default: () => ({}) },
   recordingEnabled: { type: Boolean, default: false },
+  routes: [routeSchema],
   explorationStatus: {
     type: String,
     enum: ['pending', 'exploring', 'ready', 'failed'],
