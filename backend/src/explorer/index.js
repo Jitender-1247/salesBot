@@ -1,5 +1,6 @@
 import { chromium } from 'playwright';
 import { mergeExploredRoutes } from '../agent/routes.js';
+import { replacePageChunks, syncDerivedChunks } from '../agent/rag/knowledge.js';
 import { decrypt } from '../utils/encryption.js';
 import { checkUrl, guardBrowserContext } from '../utils/urlSafety.js';
 import Product from '../models/Product.js';
@@ -82,6 +83,14 @@ async function extractPageContent(page) {
     });
 }
 
+/** Readable text of the page for the knowledge base (main content when marked up, else the body). */
+export async function extractFullText(page) {
+    return await page.evaluate(() => {
+        const root = document.querySelector('main, [role="main"], article') || document.body;
+        return (root?.innerText || '').replace(/\n{3,}/g, '\n\n').trim().slice(0, 30000);
+    }).catch(() => '');
+}
+
 async function getInternalLinks(page, baseUrl) {
     return await page.$$eval('a[href]', (anchors, base) =>
         [...new Set(
@@ -131,11 +140,13 @@ export async function extractControls(page) {
     }).catch(() => []);
 }
 
-async function explorePage(page, knowledgeMap, visitedUrls, baseUrl, routes = []) {
+/** run collects what one exploration produces besides the knowledge map: shortcuts, page text, timings. */
+async function explorePage(page, knowledgeMap, visitedUrls, baseUrl, run = { routes: [], pages: [] }) {
     const currentUrl = page.url();
 
     if (visitedUrls.has(currentUrl)) return;
     visitedUrls.add(currentUrl);
+    const pageStart = Date.now();
 
     try {
         await page.waitForLoadState('domcontentloaded', { timeout: 10000 });
@@ -190,8 +201,11 @@ async function explorePage(page, knowledgeMap, visitedUrls, baseUrl, routes = []
 
         console.log(`✅ Explored: ${pageData.pageName} — ${currentUrl}`);
 
+        const fullText = await extractFullText(page);
+        run.pages.push({ name: pageData.pageName, url: currentUrl, text: fullText, ms: Date.now() - pageStart, chars: fullText.length });
+
         for (const control of await extractControls(page)) {
-            routes.push({
+            run.routes.push({
                 name: `${control.label} (${control.role} on ${pageData.pageName})`,
                 pageUrl: currentUrl,
                 role: control.role,
@@ -211,7 +225,7 @@ async function explorePage(page, knowledgeMap, visitedUrls, baseUrl, routes = []
             if (!visitedUrls.has(link)) {
                 try {
                     await page.goto(link, { waitUntil: 'domcontentloaded', timeout: 15000 });
-                    await explorePage(page, knowledgeMap, visitedUrls, baseUrl, routes);
+                    await explorePage(page, knowledgeMap, visitedUrls, baseUrl, run);
                     // Go back to continue finding more links
                     await page.goBack({ waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => { });
                 } catch {
@@ -230,7 +244,7 @@ async function explorePage(page, knowledgeMap, visitedUrls, baseUrl, routes = []
                     await page.waitForLoadState('domcontentloaded', { timeout: 5000 });
                     const newUrl = page.url();
                     if (!visitedUrls.has(newUrl) && newUrl.startsWith(baseUrl)) {
-                        await explorePage(page, knowledgeMap, visitedUrls, baseUrl, routes);
+                        await explorePage(page, knowledgeMap, visitedUrls, baseUrl, run);
                     }
                 } catch {
                     // skip failed button clicks
@@ -277,7 +291,8 @@ export async function exploreProduct(productId) {
     });
     const page = await browserContext.newPage();
     const knowledgeMap = { pages: [], loginSteps: {}, productSummary: '' };
-    const exploredRoutes = [];
+    const run = { routes: [], pages: [] };
+    const startedAt = new Date();
     const visitedUrls = new Set();
 
     try {
@@ -405,7 +420,7 @@ export async function exploreProduct(productId) {
 
         knowledgeMap.loginSteps = loginSteps;
 
-        await explorePage(page, knowledgeMap, visitedUrls, product.url, exploredRoutes);
+        await explorePage(page, knowledgeMap, visitedUrls, product.url, run);
 
 
         // Generate a sales-oriented product summary via Groq
@@ -446,13 +461,26 @@ Include at most 5 steps. Order them to create the most compelling narrative.`
             knowledgeMap.extraKnowledge = product.extraKnowledge;
         }
 
-        await Product.findByIdAndUpdate(productId, {
+        // Knowledge base (RAG): full text of every explored page, then the derived passages
+        const pagePassages = await replacePageChunks(product._id, run.pages);
+        const finishedAt = new Date();
+
+        const saved = await Product.findByIdAndUpdate(productId, {
             knowledgeMap,
             // Keep shortcuts learned in live demos; refresh the explored ones
-            routes: mergeExploredRoutes(product.routes, exploredRoutes),
-            explorationStatus: 'ready'
-        });
-        console.log(`🧭 ${exploredRoutes.length} in-page shortcuts recorded`);
+            routes: mergeExploredRoutes(product.routes, run.routes),
+            explorationStatus: 'ready',
+            explorationStats: {
+                startedAt,
+                finishedAt,
+                durationMs: finishedAt - startedAt,
+                pageCount: run.pages.length,
+                pages: run.pages.map(({ name, url, ms, chars }) => ({ name, url, ms, chars }))
+            }
+        }, { new: true });
+        const totalPassages = await syncDerivedChunks(saved);
+        console.log(`🧭 ${run.routes.length} in-page shortcuts recorded`);
+        console.log(`📚 Knowledge base: ${pagePassages} page passages, ${totalPassages} total | ⏱️ exploration took ${((finishedAt - startedAt) / 1000).toFixed(1)}s for ${run.pages.length} pages`);
 
         console.log(`\n🎉 Exploration complete — ${knowledgeMap.pages.length} pages mapped`);
         return knowledgeMap;

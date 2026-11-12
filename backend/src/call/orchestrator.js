@@ -3,6 +3,7 @@ import { speak } from '../agent/tts.js';
 import { think, buildActionFeedback } from '../agent/brain/index.js';
 import { Navigator } from '../agent/navigator/index.js';
 import { shortcutsForPrompt, recordLearnedRoute, pageKey } from '../agent/routes.js';
+import { retrieve, formatKnowledge, ensureIndexed } from '../agent/rag/knowledge.js';
 import { decrypt, decryptIfEncrypted } from '../utils/encryption.js';
 import { generateToken } from '../call/room.js';
 import { RoomServiceClient } from 'livekit-server-sdk';
@@ -312,6 +313,9 @@ export class CallOrchestrator {
             let stepCount = 0;
             const maxSteps = 5;
 
+            // Knowledge base (RAG): passages for this question, reused by the follow-up navigation steps
+            const knowledge = await this.retrieveKnowledge(transcript);
+
             while (stepCount < maxSteps) {
                 if (this.interruptRequested && interruptId < this.speechSequence) {
                     console.log('🛑 Interrupted by newer user turn; stopping current follow-up.');
@@ -333,7 +337,8 @@ export class CallOrchestrator {
                     this.conversationHistory,
                     this.product.name,
                     pageContext,  // pass page context to brain
-                    shortcuts
+                    shortcuts,
+                    knowledge
                 );
 
                 this.io.to(this.callId).emit('agent-thinking', false);
@@ -555,6 +560,27 @@ export class CallOrchestrator {
             if (this.currentSpeechController && this.currentSpeechController.signal.aborted) {
                 this.currentSpeechController = null;
             }
+        }
+    }
+
+    /** Relevant passages for a question, or undefined (= old prompt) if the index is empty or anything fails. */
+    async retrieveKnowledge(question) {
+        try {
+            if (!this.kbChecked) {
+                this.kbChecked = true;
+                await ensureIndexed(this.product);
+            }
+            const p = await Product.findById(this.product._id).select('knowledgeIndex.version').lean();
+            const version = p?.knowledgeIndex?.version || 0;
+            if (!version) return undefined;
+            const recent = this.conversationHistory.filter(m => m.role === 'user' || m.role === 'assistant').slice(-3, -1).map(m => m.content).join('\n');
+            const t0 = Date.now();
+            const passages = await retrieve(this.product._id, { question, context: recent, limit: 5, types: ['page', 'document', 'map', 'extra'], version });
+            console.log(`📚 [RAG] ${passages.length} passages in ${Date.now() - t0}ms`);
+            return formatKnowledge(passages, 3500);
+        } catch (err) {
+            console.warn('⚠️ [RAG] retrieval failed, answering without it:', err.message);
+            return undefined;
         }
     }
 

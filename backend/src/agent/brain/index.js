@@ -288,7 +288,7 @@ export function buildActionFeedback(outcomes) {
  * Build a structured system prompt with numbered element list and page outline.
  * This gives the LLM precise targets for clicking — like a real browser agent.
  */
-function buildSystemPrompt(language, knowledgeMap, productName, pageContext, shortcuts = []) {
+function buildSystemPrompt(language, knowledgeMap, productName, pageContext, shortcuts = [], knowledge) {
     const lang = language || 'en';
     const langName = languageNames[lang] || 'English';
     const persona = culturalPersona[lang] || culturalPersona.en;
@@ -321,8 +321,11 @@ function buildSystemPrompt(language, knowledgeMap, productName, pageContext, sho
     }
 
     // Inject client-provided extra knowledge (sales context, FAQs, competitive info)
+    // Knowledge base (RAG) active: only the passages relevant to this question (owner notes are indexed too)
     let extraKnowledgeSection = '';
-    if (knowledgeMap.extraKnowledge || '') {
+    if (knowledge !== undefined) {
+        if (knowledge) extraKnowledgeSection = `\n═══ RELEVANT KNOWLEDGE FOR THIS QUESTION (from the product's website, documents and notes — prefer these exact facts, never invent numbers) ═══\n${knowledge}`;
+    } else if (knowledgeMap.extraKnowledge || '') {
         extraKnowledgeSection = `\n═══ ADDITIONAL PRODUCT KNOWLEDGE (from the product owner) ═══\n${knowledgeMap.extraKnowledge}`;
     }
 
@@ -446,8 +449,8 @@ FALLBACK ACTION TAGS (for models without native tool calling):
 /no_think`.trim();
 }
 
-export async function think(transcript, language, knowledgeMap, conversationHistory, productName, pageContext, shortcuts = []) {
-    const systemPrompt = buildSystemPrompt(language, knowledgeMap, productName, pageContext, shortcuts);
+export async function think(transcript, language, knowledgeMap, conversationHistory, productName, pageContext, shortcuts = [], knowledge) {
+    const systemPrompt = buildSystemPrompt(language, knowledgeMap, productName, pageContext, shortcuts, knowledge);
 
     const messages = [
         { role: 'system', content: systemPrompt },

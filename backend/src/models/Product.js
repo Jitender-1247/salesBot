@@ -110,6 +110,21 @@ const productSchema = new mongoose.Schema({
   handover: { type: handoverSchema, default: () => ({}) },
   recordingEnabled: { type: Boolean, default: false },
   routes: [routeSchema],
+  // RAG index bookkeeping: bumping version makes running servers reload the product's passages
+  knowledgeIndex: {
+    version: { type: Number, default: 0 },
+    chunkCount: { type: Number, default: 0 },
+    embeddingModel: { type: String, default: '' },
+    updatedAt: Date
+  },
+  // How long the last exploration took (shown on the product page)
+  explorationStats: {
+    startedAt: Date,
+    finishedAt: Date,
+    durationMs: Number,
+    pageCount: Number,
+    pages: [{ _id: false, name: String, url: String, ms: Number, chars: Number }]
+  },
   explorationStatus: {
     type: String,
     enum: ['pending', 'exploring', 'ready', 'failed'],

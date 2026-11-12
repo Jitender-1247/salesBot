@@ -84,7 +84,7 @@ function formatHostPage(hostPage) {
     return lines.join('\n');
 }
 
-export function buildChatSystemPrompt(language, knowledgeMap, productName, { persona, catalog = [], handoverAvailable = false, hostPage = null } = {}) {
+export function buildChatSystemPrompt(language, knowledgeMap, productName, { persona, catalog = [], handoverAvailable = false, hostPage = null, knowledge } = {}) {
     const lang = language || 'en';
     const langName = languageNames[lang] || 'English';
     const culture = culturalPersona[lang] || culturalPersona.en;
@@ -104,8 +104,14 @@ export function buildChatSystemPrompt(language, knowledgeMap, productName, { per
         })
         .join('\n\n');
 
+    // With the knowledge base (RAG) active, only the passages relevant to this question are included
+    // (the owner's notes are indexed too); without it, fall back to the whole owner knowledge text.
     let extraKnowledgeSection = '';
-    if (knowledgeMap?.extraKnowledge) {
+    if (knowledge !== undefined) {
+        extraKnowledgeSection = knowledge
+            ? `\n═══ RELEVANT KNOWLEDGE FOR THIS QUESTION (from the product's website, documents and notes — prefer these exact facts) ═══\n${knowledge}\n`
+            : '';
+    } else if (knowledgeMap?.extraKnowledge) {
         extraKnowledgeSection = `\n═══ PRODUCT OWNER KNOWLEDGE BASE ═══\n${knowledgeMap.extraKnowledge}\n`;
     }
 
@@ -169,7 +175,7 @@ ${catalogSection}${hostPageSection}
 ═══ CONVERSATION RULES ═══
 1. Keep each spoken turn CONCISE (1 to 3 sentences). Overly long paragraphs feel unnatural over voice.
 2. Directly answer the user's specific inquiry first using the stored knowledge, then offer value or insight.
-3. If asked about pricing, features, integrations, or use cases, draw directly from the stored knowledge above.
+3. If asked about pricing, features, integrations, or use cases, draw directly from the stored knowledge above. Quote exact numbers, limits and names from RELEVANT KNOWLEDGE when present; never invent them.
 4. If a question is not covered in your knowledge base, be honest and offer to connect them with a human specialist or record their details.
 5. Always end your response with an open, engaging follow-up question to keep the dialogue natural and friendly (e.g. "Does that match what you're trying to build?", "Would you like me to dive deeper into any of those features?").
 6. NEVER output browser tags like [NAVIGATE], [CLICK], [TYPE], [SCROLL], or [WAIT].
