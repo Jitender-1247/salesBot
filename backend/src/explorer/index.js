@@ -3,6 +3,7 @@ import { mergeExploredRoutes } from '../agent/routes.js';
 import { replacePageChunks, syncDerivedChunks } from '../agent/rag/knowledge.js';
 import { decrypt } from '../utils/encryption.js';
 import { checkUrl, guardBrowserContext } from '../utils/urlSafety.js';
+import { primeConsentCookies, dismissConsent } from '../utils/consent.js';
 import Product from '../models/Product.js';
 import dotenv from 'dotenv';
 import Groq from 'groq-sdk';
@@ -142,7 +143,14 @@ export async function extractControls(page) {
 
 /** run collects what one exploration produces besides the knowledge map: shortcuts, page text, timings. */
 async function explorePage(page, knowledgeMap, visitedUrls, baseUrl, run = { routes: [], pages: [] }) {
+    // A consent wall redirects away and back, so read the URL only after it's gone
+    const dismissed = await dismissConsent(page);
+    if (dismissed) console.log(`🍪 Dismissed cookie consent via ${dismissed}`);
     const currentUrl = page.url();
+    if (/^https?:\/\/consent\./i.test(currentUrl)) {
+        console.log(`⚠️ Skipping ${currentUrl} — stuck on a cookie-consent wall`);
+        return;
+    }
 
     if (visitedUrls.has(currentUrl)) return;
     visitedUrls.add(currentUrl);
@@ -286,6 +294,7 @@ export async function exploreProduct(productId) {
         locale: 'en-US',
     });
     await guardBrowserContext(browserContext);
+    await primeConsentCookies(browserContext);
     await browserContext.addInitScript(() => {
         Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
     });
@@ -299,6 +308,8 @@ export async function exploreProduct(productId) {
         console.log(`🔍 Starting exploration of ${product.url}`);
 
         await page.goto(product.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        const consent = await dismissConsent(page);
+        if (consent) console.log(`🍪 Dismissed cookie consent via ${consent}`);
 
         const loginContent = await extractPageContent(page);
 
