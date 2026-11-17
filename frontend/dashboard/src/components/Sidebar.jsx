@@ -1,5 +1,6 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import ThemeDrawer from './ThemeDrawer';
+import { getClient } from '../api';
 
 const navItems = [
     { path: '/', icon: '⚡', label: 'Bots' },
@@ -10,7 +11,7 @@ const navItems = [
 export default function Sidebar() {
     const location = useLocation();
     const navigate = useNavigate();
-    const client = JSON.parse(localStorage.getItem('client') || '{}');
+    const client = getClient();
 
     const handleLogout = () => {
         localStorage.removeItem('token');
@@ -24,7 +25,7 @@ export default function Sidebar() {
     };
 
     return (
-        <aside className="w-[260px] h-screen sticky top-0 flex flex-col flex-shrink-0 relative z-20 transition-all duration-300"
+        <aside className="w-[200px] xl:w-[260px] h-screen sticky top-0 flex flex-col flex-shrink-0 z-20 transition-all duration-300"
             style={{
                 background: 'var(--bg-sidebar)',
                 backdropFilter: 'blur(24px)',

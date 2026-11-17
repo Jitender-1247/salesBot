@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import BackButton from '../components/BackButton';
+import ErrorCard from '../components/ErrorCard';
 import api from '../api';
 
 const BOT_INFO = {
@@ -17,17 +18,22 @@ export default function BotInstances() {
     const [products, setProducts] = useState([]);
     const [calls, setCalls] = useState([]);
     const [loading, setLoading] = useState(true);
-
-    useEffect(() => { if (bot) fetchData(); }, [botType]);
+    const [error, setError] = useState(false);
 
     const fetchData = async () => {
+        setError(false);
         try {
             const [p, c] = await Promise.all([api.get('/products'), api.get('/calls')]);
             setProducts(p.data);
             setCalls(c.data);
-        } catch (err) { console.log('Error:', err); }
+        } catch (err) {
+            console.log('Error:', err);
+            setError(true);
+        }
         finally { setLoading(false); }
     };
+
+    useEffect(() => { if (bot) fetchData(); }, [botType]); // eslint-disable-line react-hooks/exhaustive-deps
 
     if (!bot) return (
         <div className="flex min-h-screen">
@@ -79,6 +85,8 @@ export default function BotInstances() {
                     <div className="flex items-center justify-center py-20">
                         <div className="w-8 h-8 rounded-full animate-spin border-2 border-purple-500 border-t-transparent" />
                     </div>
+                ) : error ? (
+                    <ErrorCard onRetry={fetchData} />
                 ) : products.length === 0 ? (
                     <div className="ultra-card p-16 text-center">
                         <p className="text-4xl mb-4">⚡</p>
@@ -87,7 +95,7 @@ export default function BotInstances() {
                         <Link to="/products/new" className="ultra-btn-primary no-underline text-xs">+ Add Product</Link>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                         {products.map(p => {
                             const s = statsFor(p._id);
                             return (

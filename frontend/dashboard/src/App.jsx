@@ -9,7 +9,6 @@ import NewProduct from './pages/NewProduct';
 import ProductDetail from './pages/ProductDetail';
 import CallDetail from './pages/CallDetail';
 import Embed from './pages/Embed';
-import TestUI from './pages/TestUI';
 import LiveConsole from './pages/LiveConsole';
 import { ThemeProvider } from './context/ThemeContext';
 
@@ -25,7 +24,6 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
-        <Route path="/test-ui" element={<TestUI />} />
         <Route path="/" element={<PrivateRoute><Bots /></PrivateRoute>} />
         <Route path="/bots/:botType" element={<PrivateRoute><BotInstances /></PrivateRoute>} />
         <Route path="/bots/:botType/:productId" element={<PrivateRoute><BotDashboard /></PrivateRoute>} />

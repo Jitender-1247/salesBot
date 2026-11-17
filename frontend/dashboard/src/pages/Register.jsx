@@ -114,7 +114,9 @@ export default function Register() {
                                 value={form.password}
                                 onChange={e => setForm({ ...form, password: e.target.value })}
                                 required
+                                minLength={8}
                             />
+                            <p className="text-[11px] text-slate-500 mt-1.5">At least 8 characters.</p>
                         </div>
 
                         <button type="submit" disabled={loading} className="ultra-btn-primary w-full py-3.5 mt-2">

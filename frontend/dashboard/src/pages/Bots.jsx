@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
-import api from '../api';
+import ErrorCard from '../components/ErrorCard';
+import api, { getClient } from '../api';
 
 const BOT_TYPES = [
     {
@@ -24,20 +25,23 @@ export default function Bots() {
     const navigate = useNavigate();
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
-    const client = JSON.parse(localStorage.getItem('client') || '{}');
-
-    useEffect(() => { fetchStats(); }, []);
+    const [error, setError] = useState(false);
+    const client = getClient();
 
     const fetchStats = async () => {
+        setError(false);
         try {
             const res = await api.get('/calls/analytics');
             setStats(res.data);
         } catch (err) {
             console.log('Error fetching stats:', err);
+            setError(true);
         } finally {
             setLoading(false);
         }
     };
+
+    useEffect(() => { fetchStats(); }, []);
 
     return (
         <div className="flex min-h-screen">
@@ -78,7 +82,8 @@ export default function Bots() {
                 </div>
 
                 {/* Agent Cards Grid */}
-                <div className="grid grid-cols-3 gap-6">
+                {error && <ErrorCard onRetry={fetchStats} />}
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                     {BOT_TYPES.map(bot => (
                         <button
                             key={bot.id}
@@ -118,14 +123,14 @@ export default function Bots() {
                                         <p className="text-white font-bold text-lg font-mono">
                                             {loading ? '—' : stats?.totalCalls ?? 0}
                                         </p>
-                                        <p className="text-slate-400 text-[11px] font-medium">Sessions</p>
+                                        <p className="text-slate-400 text-[11px] font-medium">Sessions (all agents)</p>
                                     </div>
                                     <div className="w-[1px] h-6 bg-white/10" />
                                     <div>
                                         <p className="text-emerald-400 font-bold text-lg font-mono">
                                             {loading ? '—' : stats?.qualifiedLeads ?? 0}
                                         </p>
-                                        <p className="text-slate-400 text-[11px] font-medium">Leads</p>
+                                        <p className="text-slate-400 text-[11px] font-medium">Leads (all agents)</p>
                                     </div>
                                 </div>
 

@@ -1,24 +1,28 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
+import ErrorCard from '../components/ErrorCard';
 import api from '../api';
 
 export default function Products() {
     const [products, setProducts] = useState([]);
     const [loading, setLoading] = useState(true);
-
-    useEffect(() => { fetchProducts(); }, []);
+    const [error, setError] = useState(false);
 
     const fetchProducts = async () => {
+        setError(false);
         try {
             const res = await api.get('/products');
             setProducts(res.data);
         } catch (err) {
             console.log('Error fetching products:', err);
+            setError(true);
         } finally {
             setLoading(false);
         }
     };
+
+    useEffect(() => { fetchProducts(); }, []);
 
     const statusBadge = (status) => {
         const map = {
@@ -57,6 +61,8 @@ export default function Products() {
                     <div className="flex items-center justify-center py-20">
                         <div className="w-8 h-8 rounded-full animate-spin border-2 border-purple-500 border-t-transparent" />
                     </div>
+                ) : error ? (
+                    <ErrorCard onRetry={fetchProducts} />
                 ) : products.length === 0 ? (
                     <div className="ultra-card p-16 text-center">
                         <p className="text-4xl mb-4">⚡</p>

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import BackButton from '../components/BackButton';
+import ErrorCard from '../components/ErrorCard';
 import LeadScorePill from '../components/LeadScorePill';
 import api from '../api';
 
@@ -26,13 +27,13 @@ export default function BotDashboard() {
     const [filterQualified, setFilterQualified] = useState('all');
     const [filterLanguage, setFilterLanguage] = useState('all');
     const [hoveredBar, setHoveredBar] = useState(null);
-
-    useEffect(() => {
-        if (!bot) return;
-        fetchData();
-    }, [botType, productId]);
+    const [error, setError] = useState(false);
+    const [exporting, setExporting] = useState(false);
+    const [exportError, setExportError] = useState(false);
 
     const fetchData = async () => {
+        setLoading(true); // also when switching products: never show the previous product's numbers
+        setError(false);
         try {
             const [productRes, analyticsRes, callsRes, leadsRes] = await Promise.all([
                 api.get(`/products/${productId}`),
@@ -46,12 +47,20 @@ export default function BotDashboard() {
             setLeads(leadsRes.data);
         } catch (err) {
             console.log('Error fetching bot dashboard data:', err);
+            setError(true);
         } finally {
             setLoading(false);
         }
     };
 
+    useEffect(() => {
+        if (!bot) return;
+        fetchData();
+    }, [botType, productId]); // eslint-disable-line react-hooks/exhaustive-deps
+
     const handleExport = async () => {
+        setExporting(true);
+        setExportError(false);
         try {
             const res = await api.get('/calls/export', { params: { productId }, responseType: 'blob' });
             const url = window.URL.createObjectURL(new Blob([res.data]));
@@ -63,12 +72,17 @@ export default function BotDashboard() {
             link.remove();
         } catch (err) {
             console.log('Export error:', err);
+            setExportError(true);
+            setTimeout(() => setExportError(false), 4000);
+        } finally {
+            setExporting(false);
         }
     };
 
     const formatDuration = (seconds) => {
+        if (!seconds && seconds !== 0) return '—';
         const m = Math.floor(seconds / 60);
-        const s = seconds % 60;
+        const s = Math.round(seconds % 60);
         return `${m}m ${s}s`;
     };
 
@@ -183,13 +197,23 @@ export default function BotDashboard() {
                             AI Agent: {bot.personaName} • {product.url}
                         </p>
                     </div>
-                    <button onClick={handleExport} className="ultra-btn-secondary text-xs">
-                        📥 Export Sessions CSV
-                    </button>
+                    <div className="flex items-center gap-3">
+                        <Link to={`/products/${productId}`} className="ultra-btn-secondary text-xs no-underline">
+                            ⚙️ Configure Agent
+                        </Link>
+                        <button onClick={handleExport} disabled={exporting} className="ultra-btn-secondary text-xs disabled:opacity-50">
+                            {exporting ? 'Exporting…' : '📥 Export Sessions CSV'}
+                        </button>
+                    </div>
                 </div>
+                {exportError && (
+                    <p className="text-xs text-rose-400 text-right -mt-6">Export failed — please try again.</p>
+                )}
+
+                {error && <ErrorCard onRetry={fetchData} />}
 
                 {/* Stat Cards Grid */}
-                <div className="grid grid-cols-6 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
                     {statCards.map((stat) => (
                         <div key={stat.label} className="ultra-card p-5">
                             <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg mb-3 shadow-inner"
@@ -205,7 +229,7 @@ export default function BotDashboard() {
                 </div>
 
                 {/* Enhanced Interactive Charts Grid */}
-                <div className="grid grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
 
                     {/* Illuminated Area & Bar Chart */}
                     <div className="col-span-2 ultra-card p-6 flex flex-col justify-between">
@@ -309,7 +333,7 @@ export default function BotDashboard() {
                     {/* Language breakdown */}
                     <div className="ultra-card p-6">
                         <h2 className="font-bold text-sm mb-6" style={{ color: 'var(--text-main)' }}>Language Breakdown</h2>
-                        {analytics?.languages?.length === 0 ? (
+                        {!analytics?.languages?.length ? (
                             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>No data captured yet</p>
                         ) : (
                             <div className="space-y-4">
@@ -397,7 +421,7 @@ export default function BotDashboard() {
                     {activeTab === 'sessions' && (
                         <div className="flex items-center gap-3">
                             <input type="text" placeholder="Search sessions by visitor name or email..."
-                                className="ultra-input text-xs w-[280px]" value={search} onChange={e => setSearch(e.target.value)} />
+                                className="ultra-input text-xs w-full max-w-[280px]" value={search} onChange={e => setSearch(e.target.value)} />
                             <select className="ultra-input text-xs w-auto cursor-pointer" value={filterQualified} onChange={e => setFilterQualified(e.target.value)}>
                                 <option value="all">All leads</option>
                                 <option value="yes">Qualified Only</option>
@@ -424,7 +448,7 @@ export default function BotDashboard() {
                     ) : (
                         <div className="space-y-3">
                             {filteredCalls.map(call => (
-                                <Link key={call._id} to={`/calls/${call._id}`}
+                                <Link key={call._id} to={`/calls/${call._id}`} state={{ from: `/bots/${botType}/${productId}` }}
                                     className="ultra-card p-5 flex items-center justify-between no-underline group">
                                     <div className="flex items-center gap-4">
                                         <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-base shadow-md font-bold"

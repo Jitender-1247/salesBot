@@ -75,10 +75,11 @@ export default function ThemeDrawer() {
                                 {themes.map((t) => {
                                     const isSelected = theme === t.id;
                                     return (
-                                        <div
+                                        <button
+                                            type="button"
                                             key={t.id}
                                             onClick={() => setTheme(t.id)}
-                                            className={`p-4 rounded-xl cursor-pointer transition-all duration-200 flex items-center justify-between ${isSelected ? 'ring-2 ring-purple-500 scale-[1.02]' : 'hover:scale-[1.01]'
+                                            className={`w-full text-left p-4 rounded-xl cursor-pointer transition-all duration-200 flex items-center justify-between ${isSelected ? 'ring-2 ring-purple-500 scale-[1.02]' : 'hover:scale-[1.01]'
                                                 }`}
                                             style={{
                                                 background: 'var(--bg-surface)',
@@ -105,7 +106,7 @@ export default function ThemeDrawer() {
                                                     ✓
                                                 </span>
                                             )}
-                                        </div>
+                                        </button>
                                     );
                                 })}
                             </div>

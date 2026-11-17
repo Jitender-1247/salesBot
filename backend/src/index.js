@@ -34,6 +34,14 @@ if (configErrors.length) {
     process.exit(1);
 }
 
+// Missing optional keys don't stop the server, but say plainly what won't work
+const capabilityWarnings = [];
+if (!process.env.GROQ_API_KEY) capabilityWarnings.push('GROQ_API_KEY missing — the agent cannot think (no LLM)');
+if (!process.env.DEEPGRAM_API_KEY) capabilityWarnings.push('DEEPGRAM_API_KEY missing — no speech-to-text or voice replies');
+if (!process.env.LIVEKIT_URL || !process.env.LIVEKIT_API_KEY) capabilityWarnings.push('LIVEKIT_* missing — no avatar video or call recording');
+if (!process.env.REDIS_URL) capabilityWarnings.push('REDIS_URL missing — single-node mode (Socket.IO without the Redis adapter)');
+for (const w of capabilityWarnings) console.warn(`⚠️ ${w}`);
+
 const app = express();
 const server = createServer(app);
 
@@ -131,6 +139,16 @@ app.get('/', (req, res) => {
     res.json({ message: 'SalesBot backend running!' });
 });
 
+// Health check for nginx / uptime monitors: 200 only when MongoDB is reachable
+app.get('/healthz', (req, res) => {
+    const dbUp = mongoose.connection.readyState === 1;
+    res.status(dbUp ? 200 : 503).json({
+        status: dbUp ? 'ok' : 'degraded',
+        db: dbUp ? 'connected' : 'disconnected',
+        uptimeSec: Math.floor(process.uptime())
+    });
+});
+
 // Unknown API routes → JSON 404
 app.use('/api/', (req, res) => res.status(404).json({ message: 'Not found' }));
 
@@ -161,3 +179,18 @@ const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
+
+// Graceful shutdown: let Docker/PM2 restarts finish in-flight requests instead of cutting calls mid-reply
+let shuttingDown = false;
+async function shutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`${signal} received — shutting down gracefully`);
+    server.close(async () => {
+        await mongoose.disconnect().catch(() => {});
+        process.exit(0);
+    });
+    setTimeout(() => process.exit(1), 10_000).unref(); // hard stop if something hangs
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

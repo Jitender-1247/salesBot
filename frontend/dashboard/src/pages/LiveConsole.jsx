@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { io } from 'socket.io-client';
 import { Room, RoomEvent, Track } from 'livekit-client';
 import Sidebar from '../components/Sidebar';
+import { getClient } from '../api';
 
 const BACKEND_URL = import.meta.env.PROD
     ? ''
@@ -9,9 +10,13 @@ const BACKEND_URL = import.meta.env.PROD
 
 const NAME_KEY = 'liveConsoleName';
 
+// One shared context — browsers cap live AudioContexts, and a long shift pages many times
+let beepCtx = null;
 function beep() {
     try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        beepCtx = beepCtx || new (window.AudioContext || window.webkitAudioContext)();
+        const ctx = beepCtx;
+        if (ctx.state === 'suspended') ctx.resume().catch(() => {});
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.frequency.value = 880;
@@ -32,7 +37,7 @@ const reasonLabel = {
 
 /** Human specialists: get paged on handover requests, take over calls with camera + mic, chat, hand back. */
 export default function LiveConsole() {
-    const client = JSON.parse(localStorage.getItem('client') || '{}');
+    const client = getClient();
     const [displayName, setDisplayName] = useState(() => localStorage.getItem(NAME_KEY) || client.name || '');
     const [online, setOnline] = useState(false);
     const [authError, setAuthError] = useState('');

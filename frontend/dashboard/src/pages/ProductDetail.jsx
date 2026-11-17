@@ -28,21 +28,12 @@ export default function ProductDetail() {
     const [demoStartUrl, setDemoStartUrl] = useState('');
     const [savingSession, setSavingSession] = useState(false);
     const [sessionSaved, setSessionSaved] = useState(false);
+    const [sessionError, setSessionError] = useState('');
+    const [fetchError, setFetchError] = useState(false);
     const [retrying, setRetrying] = useState(false);
     const [editingName, setEditingName] = useState(false);
     const [nameDraft, setNameDraft] = useState('');
     const [nameError, setNameError] = useState('');
-
-    useEffect(() => {
-        fetchProduct();
-    }, [id]);
-
-    // While exploring, refresh every 5s until it's done (reads the current status, not the first render's)
-    useEffect(() => {
-        if (product?.explorationStatus !== 'exploring') return;
-        const interval = setInterval(fetchProduct, 5000);
-        return () => clearInterval(interval);
-    }, [product?.explorationStatus, id]);
 
     const fetchProduct = async () => {
         try {
@@ -50,21 +41,47 @@ export default function ProductDetail() {
             setProduct(res.data);
             setSessionCookies(res.data.sessionCookies || '');
             setDemoStartUrl(res.data.demoStartUrl || '');
+            setFetchError(false);
         } catch (err) {
             console.log('Error fetching product:', err);
+            setFetchError(true);
         } finally {
             setLoading(false);
         }
     };
 
+    useEffect(() => {
+        fetchProduct();
+    }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // While exploring, refresh every 5s until it's done (reads the current status, not the first render's)
+    useEffect(() => {
+        if (product?.explorationStatus !== 'exploring') return;
+        const interval = setInterval(fetchProduct, 5000);
+        return () => clearInterval(interval);
+    }, [product?.explorationStatus, id]); // eslint-disable-line react-hooks/exhaustive-deps
+
     const saveSession = async () => {
+        // Cookies must be the JSON array a cookie-export extension produces — catch bad pastes here,
+        // not hours later when exploration silently fails to log in.
+        if (sessionCookies.trim()) {
+            try {
+                const parsed = JSON.parse(sessionCookies);
+                if (!Array.isArray(parsed)) throw new Error();
+            } catch {
+                setSessionError('Session cookies must be a JSON array (export them with a browser cookie extension).');
+                return;
+            }
+        }
         try {
             setSavingSession(true);
+            setSessionError('');
             await api.patch(`/products/${id}/session`, { sessionCookies, demoStartUrl });
             setSessionSaved(true);
             setTimeout(() => setSessionSaved(false), 3000);
         } catch (err) {
             console.log('Error saving session:', err);
+            setSessionError(err.response?.data?.message || 'Could not save — please try again.');
         } finally {
             setSavingSession(false);
         }
@@ -123,7 +140,17 @@ export default function ProductDetail() {
         <div className="flex min-h-screen">
             <Sidebar />
             <main className="flex-1 p-8 flex items-center justify-center">
-                <p style={{ color: 'var(--text-sub)' }}>Product not found</p>
+                {fetchError ? (
+                    <div className="w-full max-w-md">
+                        <div className="ultra-card p-12 text-center">
+                            <p className="text-3xl mb-3">⚠️</p>
+                            <p className="text-xs mb-5" style={{ color: 'var(--text-muted)' }}>Couldn't load this product. Check your connection and try again.</p>
+                            <button type="button" onClick={() => { setLoading(true); fetchProduct(); }} className="ultra-btn-primary text-xs">Try again</button>
+                        </div>
+                    </div>
+                ) : (
+                    <p style={{ color: 'var(--text-sub)' }}>Product not found</p>
+                )}
             </main>
         </div>
     );
@@ -200,9 +227,14 @@ export default function ProductDetail() {
                         {nameError && <p className="text-xs mt-1 font-semibold" style={{ color: '#f43f5e' }}>{nameError}</p>}
                         <p className="text-xs mt-1 font-mono" style={{ color: 'var(--text-sub)' }}>{product.url}</p>
                     </div>
-                    <Link to={`/embed/${id}`} className="ultra-btn-primary no-underline text-xs flex-shrink-0">
-                        Get Embed Code
-                    </Link>
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                        <Link to={`/bots/avatarbot/${id}`} className="ultra-btn-secondary no-underline text-xs">
+                            📊 View Analytics
+                        </Link>
+                        <Link to={`/embed/${id}`} className="ultra-btn-primary no-underline text-xs">
+                            Get Embed Code
+                        </Link>
+                    </div>
                 </div>
 
                 {statusBanner(product.explorationStatus)}
@@ -321,6 +353,7 @@ export default function ProductDetail() {
                         <button onClick={saveSession} disabled={savingSession} className="ultra-btn-primary text-xs">
                             {savingSession ? 'Saving...' : sessionSaved ? '✅ Saved!' : 'Save Session'}
                         </button>
+                        {sessionError && <p className="text-xs font-semibold" style={{ color: '#f43f5e' }}>{sessionError}</p>}
                     </div>
                 </div>
 

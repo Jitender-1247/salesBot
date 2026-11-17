@@ -15,7 +15,10 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
     (response) => response,
     (error) => {
-        if (error.response?.status === 401) {
+        // Expired/invalid session → back to login. Not for /auth/* itself: a wrong
+        // password is a 401 too, and the page reload would hide the error message.
+        const isAuthCall = error.config?.url?.includes('/auth/');
+        if (error.response?.status === 401 && !isAuthCall) {
             localStorage.removeItem('token');
             localStorage.removeItem('client');
             window.location.href = '/dashboard/login';
@@ -23,5 +26,14 @@ api.interceptors.response.use(
         return Promise.reject(error);
     }
 );
+
+/** The logged-in client record, tolerating corrupted/missing localStorage. */
+export function getClient() {
+    try {
+        return JSON.parse(localStorage.getItem('client') || '{}') || {};
+    } catch {
+        return {};
+    }
+}
 
 export default api;

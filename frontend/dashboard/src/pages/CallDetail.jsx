@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useLocation, Link } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import BackButton from '../components/BackButton';
+import ErrorCard from '../components/ErrorCard';
 import LeadScorePill from '../components/LeadScorePill';
 import api from '../api';
 
@@ -13,25 +14,30 @@ function handoverLabel(h) {
 
 export default function CallDetail() {
     const { id } = useParams();
+    const location = useLocation();
     const [call, setCall] = useState(null);
     const [loading, setLoading] = useState(true);
-
-    useEffect(() => { fetchCall(); }, [id]);
+    const [error, setError] = useState(false);
 
     const fetchCall = async () => {
+        setError(false);
         try {
             const res = await api.get(`/calls/${id}`);
             setCall(res.data);
         } catch (err) {
             console.log('Error fetching call:', err);
+            setError(true);
         } finally {
             setLoading(false);
         }
     };
 
+    useEffect(() => { fetchCall(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
     const formatDuration = (seconds) => {
+        if (!seconds && seconds !== 0) return '—';
         const m = Math.floor(seconds / 60);
-        const s = seconds % 60;
+        const s = Math.round(seconds % 60);
         return `${m}m ${s}s`;
     };
 
@@ -45,7 +51,7 @@ export default function CallDetail() {
         if (!call) return [];
         if (call.messages && call.messages.length > 0) return call.messages;
         if (call.transcript) {
-            return call.transcript.split('\n').map(l => l.trim()).filter(Boolean).map((line, idx) => {
+            return call.transcript.split('\n').map(l => l.trim()).filter(Boolean).map((line) => {
                 const isUser = line.startsWith('User:');
                 const isAgent = line.startsWith('Agent:');
                 if (!isUser && !isAgent) return null;
@@ -102,18 +108,22 @@ export default function CallDetail() {
         <div className="flex min-h-screen">
             <Sidebar />
             <main className="flex-1 p-8 flex items-center justify-center">
-                <div className="text-center">
-                    <p className="text-4xl mb-4">🔍</p>
-                    <h1 className="text-xl font-semibold text-white mb-2">Session not found</h1>
-                    <Link to="/" className="text-xs font-semibold text-purple-400">← Back to Dashboard</Link>
-                </div>
+                {error ? (
+                    <div className="w-full max-w-md"><ErrorCard onRetry={fetchCall} /></div>
+                ) : (
+                    <div className="text-center">
+                        <p className="text-4xl mb-4">🔍</p>
+                        <h1 className="text-xl font-semibold text-white mb-2">Session not found</h1>
+                        <Link to="/" className="text-xs font-semibold text-purple-400">← Back to Dashboard</Link>
+                    </div>
+                )}
             </main>
         </div>
     );
 
     const botId = call.productId?._id || (typeof call.productId === 'string' ? call.productId : null);
-    const botName = call.productId?.name || 'SalesBot';
-    const backUrl = botId ? `/bots/salesbot/${botId}` : '/';
+    // Prefer where the user actually came from (passed via Link state); fall back to the salesbot tree
+    const backUrl = location.state?.from || (botId ? `/bots/salesbot/${botId}` : '/');
     const backLabel = call.productId?.name ? call.productId.name : 'Dashboard';
 
     return (
@@ -137,7 +147,7 @@ export default function CallDetail() {
                     </button>
                 </div>
 
-                <div className="grid grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
                     {/* Metadata Card */}
                     <div className="ultra-card p-6 flex flex-col gap-3">
                         <h2 className="font-bold text-sm mb-2" style={{ color: 'var(--text-main)' }}>Session Overview</h2>
@@ -204,7 +214,7 @@ export default function CallDetail() {
 
                 {/* Recording, commerce attribution, lead score reasoning */}
                 {(call.recording?.status && call.recording.status !== 'none') || call.productsShown?.length > 0 || call.leadScoreReason ? (
-                    <div className="grid grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
                         <div className="ultra-card p-6">
                             <h2 className="font-bold text-sm mb-4" style={{ color: 'var(--text-main)' }}>Recording</h2>
                             {call.recording?.url?.startsWith('http') ? (

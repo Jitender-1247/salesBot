@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import BackButton from '../components/BackButton';
 import api from '../api';
@@ -11,17 +11,16 @@ export default function Embed() {
     const [copied, setCopied] = useState(false);
     const [embedMode, setEmbedMode] = useState('video'); // 'video' | 'choice' | 'chat' | 'demo'
 
-    const serverUrl = window.location.origin.includes('localhost')
-        ? 'http://localhost:5000'
-        : window.location.origin;
+    // Same base the dashboard itself talks to, so the snippet always points at a live backend
+    const serverUrl = import.meta.env.PROD
+        ? window.location.origin
+        : (import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000');
 
     const modeAttr = embedMode === 'choice' ? '' : ` data-mode="${embedMode}"`;
     const agentName = product?.persona?.name || 'Sofia';
     const embedCode = embedMode === 'video'
         ? `<script src="${serverUrl}/widget3.js" data-product-id="${id}" async></script>`
         : `<script src="${serverUrl}/agent.js" data-product-id="${id}" data-server="${serverUrl}"${modeAttr}></script>`;
-
-    useEffect(() => { fetchProduct(); }, [id]);
 
     const fetchProduct = async () => {
         try {
@@ -34,8 +33,19 @@ export default function Embed() {
         }
     };
 
-    const handleCopy = () => {
-        navigator.clipboard.writeText(embedCode);
+    useEffect(() => { fetchProduct(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const handleCopy = async () => {
+        try {
+            await navigator.clipboard.writeText(embedCode);
+        } catch {
+            // clipboard API needs HTTPS/localhost — fall back to a hidden textarea
+            const ta = document.createElement('textarea');
+            ta.value = embedCode;
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); } finally { ta.remove(); }
+        }
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };

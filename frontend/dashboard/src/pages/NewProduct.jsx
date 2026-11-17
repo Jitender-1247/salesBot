@@ -14,6 +14,15 @@ export default function NewProduct() {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        // Catch a bad cookie paste now — not later, when exploration silently fails to log in
+        if (form.sessionCookies?.trim()) {
+            try {
+                if (!Array.isArray(JSON.parse(form.sessionCookies))) throw new Error();
+            } catch {
+                setError('Session cookies must be a JSON array (export them with a browser cookie extension), or leave the field empty.');
+                return;
+            }
+        }
         setLoading(true);
         setError('');
         try {
