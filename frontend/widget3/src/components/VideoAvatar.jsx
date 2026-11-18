@@ -27,7 +27,7 @@ function AvatarPlaceholder({ speaking, avatarImg, agentName }) {
                     src={avatarImg}
                     alt={agentName}
                     className="avatar-img"
-                    onError={(e) => { e.target.src = FALLBACK_AVATAR_IMG; }}
+                    onError={(e) => { e.target.onerror = null; e.target.src = FALLBACK_AVATAR_IMG; }}
                 />
             </div>
         </div>
@@ -50,6 +50,15 @@ function LiveTrackPlayer({ speaking, onReady, avatarImg, agentName, humanName, o
     const videoRef = useRef(null);
     const readyReported = useRef(false);
     const [hasVideoTrack, setHasVideoTrack] = useState(false);
+
+    // If no video ever arrives (avatar provider down or out of credits), say so instead of
+    // leaving the visitor to wonder — the voice still works.
+    const [audioOnly, setAudioOnly] = useState(false);
+    useEffect(() => {
+        if (hasVideoTrack) { setAudioOnly(false); return; }
+        const t = setTimeout(() => setAudioOnly(true), 12000);
+        return () => clearTimeout(t);
+    }, [hasVideoTrack]);
 
     const tracks = useTracks(
         [
@@ -119,6 +128,9 @@ function LiveTrackPlayer({ speaking, onReady, avatarImg, agentName, humanName, o
 
             {!hasVideoTrack && (
                 <AvatarPlaceholder speaking={speaking} avatarImg={avatarImg} agentName={agentName} />
+            )}
+            {!hasVideoTrack && audioOnly && (
+                <div className="audio-only-note">🎧 Audio-only mode</div>
             )}
         </div>
     );

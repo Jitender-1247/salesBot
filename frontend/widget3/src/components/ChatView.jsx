@@ -47,6 +47,7 @@ export default function ChatView({
     const timerIntervalRef = useRef(null);
     const captionIntervalRef = useRef(null);
     const messagesEndRef = useRef(null);
+    const interruptedRef = useRef(false); // visitor cut the current reply off; drop its late audio
 
     const makeMsgId = () => `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 
@@ -60,13 +61,15 @@ export default function ChatView({
             'Tell me about pricing & plans'
         ];
 
-    // Session timer
+    // Session timer — anchored to when the call actually started, so it survives
+    // the iframe reload after an on-site page change (session resume)
     useEffect(() => {
-        timerIntervalRef.current = setInterval(() => {
-            setSessionSeconds(prev => prev + 1);
-        }, 1000);
+        const startedAt = callData?.startedAt || Date.now();
+        const tick = () => setSessionSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+        tick();
+        timerIntervalRef.current = setInterval(tick, 1000);
         return () => clearInterval(timerIntervalRef.current);
-    }, []);
+    }, [callData?.startedAt]);
 
     // Session config
     useEffect(() => {
@@ -78,9 +81,13 @@ export default function ChatView({
         return () => socket.off('session-config', handleConfig);
     }, [socket]);
 
-    // Scroll to latest message
+    // Scroll to latest message — but never yank the visitor down while they're reading history
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        const end = messagesEndRef.current;
+        const box = end?.parentElement;
+        if (!end || !box) return;
+        const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 140;
+        if (nearBottom) end.scrollIntoView({ behavior: 'smooth' });
     }, [messages, liveCaption, userLiveText]);
 
     // Safety timeout for 'processing'
@@ -177,6 +184,7 @@ export default function ChatView({
 
         const handleSpeaking = (data) => {
             if (data.speaking) {
+                interruptedRef.current = false; // a new reply: accept its audio again
                 clearInterval(captionIntervalRef.current);
                 clearTimeout(avatarFallbackRef.current);
                 captionBaseRef.current = '';
@@ -196,10 +204,11 @@ export default function ChatView({
                 // mode 'audio': captions start with each audio chunk (AudioPlayer onChunkStart)
 
                 // Auto-trigger Knowledge Card if text mentions a known page/feature
-                if (knowledgeMap?.pages?.length) {
+                const spokenLower = (data.text || '').toLowerCase();
+                if (spokenLower && knowledgeMap?.pages?.length) {
                     const match = knowledgeMap.pages.find(p =>
-                        data.text.toLowerCase().includes(p.name.toLowerCase()) ||
-                        (p.keyFeatures && p.keyFeatures.some(f => data.text.toLowerCase().includes(f.toLowerCase())))
+                        spokenLower.includes(p.name.toLowerCase()) ||
+                        (p.keyFeatures && p.keyFeatures.some(f => spokenLower.includes(f.toLowerCase())))
                     );
                     if (match) {
                         setActiveCard(match);
@@ -231,6 +240,7 @@ export default function ChatView({
         };
 
         const handlePcm = (data) => {
+            if (interruptedRef.current) return; // visitor cut this reply off — drop its late packets
             if (data.audio) pcmPlayerRef.current?.push(data.audio, data.sampleRate);
         };
 
@@ -260,7 +270,9 @@ export default function ChatView({
                 setUserLiveText(text);
                 setMessages(prev => {
                     const last = prev[prev.length - 1];
-                    if (last && last.role === 'user' && last.content === text) return prev;
+                    // Drop echoes of the same utterance, but keep a genuinely repeated "yes" later on
+                    if (last && last.role === 'user' && last.content === text
+                        && Date.now() - new Date(last.timestamp).getTime() < 4000) return prev;
                     return [...prev, { id: makeMsgId(), role: 'user', content: text, timestamp: new Date() }];
                 });
                 setTimeout(() => setUserLiveText(''), 3500);
@@ -347,12 +359,15 @@ export default function ChatView({
     }, []);
 
     const handleInterrupt = useCallback(() => {
+        interruptedRef.current = true;
         audioPlayerRef.current?.stop();
         pcmPlayerRef.current?.stop();
         clearInterval(pcmCaptionTimerRef.current);
         setAgentState('idle');
         setIsSpeaking(false);
-    }, []);
+        // Tell the backend too, or it keeps streaming this reply's audio
+        if (socket && callData) socket.emit('user-interrupt', { callId: callData.callId });
+    }, [socket, callData]);
 
     const handleAvatarReady = useCallback(() => {
         if (socket && callData) {
@@ -408,7 +423,7 @@ export default function ChatView({
                         <img
                             src={avatarImg}
                             alt={agentName}
-                            onError={(e) => { e.target.src = FALLBACK_AVATAR_IMG; }}
+                            onError={(e) => { e.target.onerror = null; e.target.src = FALLBACK_AVATAR_IMG; }}
                         />
                         <span className="online-indicator-dot" />
                     </div>
@@ -579,7 +594,7 @@ export default function ChatView({
                                     <img
                                         src={avatarImg}
                                         alt={agentName}
-                                        onError={(e) => { e.target.src = FALLBACK_AVATAR_IMG; }}
+                                        onError={(e) => { e.target.onerror = null; e.target.src = FALLBACK_AVATAR_IMG; }}
                                     />
                                 </div>
                                 <h4>{agentName} is ready to talk</h4>

@@ -493,6 +493,12 @@ export function initSocket(server) {
             }
         });
 
+        // Visitor cut the agent off from the UI (barge-in): stop the server-side TTS stream
+        socket.on('user-interrupt', ({ callId } = {}) => {
+            if (!ownsCall(socket, callId, 'user-interrupt')) return;
+            chatOrchestrators.get(callId)?.userInterrupt();
+        });
+
         // Frontend signals that agent audio finished playing
         socket.on('audio-playback-complete', ({ callId } = {}) => {
             if (!ownsCall(socket, callId, 'audio-playback-complete')) return;

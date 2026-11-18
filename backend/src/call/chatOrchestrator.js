@@ -250,6 +250,17 @@ export class ChatOrchestrator {
         await this.agentSpeak(greeting);
     }
 
+    /** Visitor tapped stop while the agent was talking: cut TTS server-side too, so PCM stops streaming. */
+    userInterrupt() {
+        if (!this.isActive || this.handoverState === 'human') return;
+        if (this.currentSpeechController) this.currentSpeechController.abort();
+        this.interruptRequested = true;
+        this.handleAudioPlaybackComplete();
+        this.resetIdleTimer();
+        this.io.to(this.callId).emit('agent-speaking', { text: '', speaking: false, interrupted: true });
+        this.io.to(this.callId).emit('agent-state', 'idle');
+    }
+
     async handleAudioBlob(audioBuffer) {
         if (!this.isActive) return;
 

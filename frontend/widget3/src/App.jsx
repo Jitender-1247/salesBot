@@ -3,8 +3,11 @@ import { io } from 'socket.io-client';
 import ChatView from './components/ChatView';
 import { unlockAudio, audioLocked } from './audio/PcmStreamPlayer';
 
+const PARAMS = new URLSearchParams(window.location.search);
+// API origin: the loader passes its data-server through, so widget assets can live on a CDN
+const SERVER_PARAM = PARAMS.get('server') || '';
 const BACKEND_URL = import.meta.env.PROD
-    ? ''
+    ? SERVER_PARAM
     : (import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000');
 const AVATAR_IMG = '/widget3/alex-avatar.png';
 const FALLBACK_AVATAR_IMG = '/alex-avatar.png';
@@ -12,10 +15,18 @@ const FALLBACK_AVATAR_IMG = '/alex-avatar.png';
 const DEFAULT_PERSONA = { name: 'Sofia', role: 'AI Sales Specialist', posterImage: '', accentColor: '' };
 
 // Embedded via widget3.js: the host page owns nudge triggers and sizes our iframe
-const IS_EMBEDDED = new URLSearchParams(window.location.search).get('embed') === '1' && window.parent !== window;
+const IS_EMBEDDED = PARAMS.get('embed') === '1' && window.parent !== window;
+// The embedding page's origin (from the loader): both directions of postMessage are pinned to it
+const HOST_ORIGIN = PARAMS.get('host') || '';
 
 function postToHost(message) {
-    if (IS_EMBEDDED) window.parent.postMessage({ source: 'ai-video-agent', ...message }, '*');
+    if (IS_EMBEDDED) window.parent.postMessage({ source: 'ai-video-agent', ...message }, HOST_ORIGIN || '*');
+}
+
+/** Swap to the fallback image once; never loop if the fallback 404s too. */
+function swapToFallback(e) {
+    e.target.onerror = null;
+    e.target.src = FALLBACK_AVATAR_IMG;
 }
 
 // When the agent opens another page of the merchant's site, this iframe reloads with it.
@@ -44,8 +55,7 @@ function clearSavedCall(pid) {
 
 export default function App() {
     // URL param for product ID
-    const urlParams = new URLSearchParams(window.location.search);
-    const productId = urlParams.get('pid') || 'test-product';
+    const productId = PARAMS.get('pid') || 'test-product';
     // A call carried over from the previous page of the merchant's site (on-site guidance)
     const [restored] = useState(() => (IS_EMBEDDED ? loadSavedCall(productId) : null));
 
@@ -61,6 +71,8 @@ export default function App() {
 
     // Screen inside widget: 'landing', 'loading', 'calling', 'end', 'queued'
     const [screen, setScreen] = useState(restored ? 'calling' : 'landing');
+    const screenRef = useRef(screen);
+    useEffect(() => { screenRef.current = screen; }, [screen]);
     const [socket, setSocket] = useState(null);
     const socketRef = useRef(null);
     const [callData, setCallData] = useState(restored?.callData || null);
@@ -69,6 +81,9 @@ export default function App() {
     useEffect(() => { callDataRef.current = callData; }, [callData]);
     const [errorMessage, setErrorMessage] = useState('');
     const [userForm, setUserForm] = useState(restored?.userForm || { name: '', email: '' });
+    const [connLost, setConnLost] = useState(false);
+    const [endReason, setEndReason] = useState(''); // '' | 'expired'
+    const startTimeoutRef = useRef(null);
 
     // On-site guidance: latest outline of the visitor's page, what the agent is saying while docked
     const hostContextRef = useRef(null);
@@ -110,6 +125,7 @@ export default function App() {
         if (IS_EMBEDDED) {
             const onMessage = (e) => {
                 if (e.source !== window.parent || e.data?.source !== 'ai-video-agent-host') return;
+                if (HOST_ORIGIN && e.origin !== HOST_ORIGIN) return;
                 const { type } = e.data;
                 if (type === 'nudge' && !callDataRef.current) applyNudge(e.data);
                 if (type === 'page-context') {
@@ -180,11 +196,15 @@ export default function App() {
         });
 
         s.on('agent-speaking', (data) => {
-            if (data?.speaking && data.text) setGuideText(data.text);
+            if (data?.speaking && data.text) {
+                setGuideText(data.text);
+                setBubbleDismissed(false); // docked mid-call: surface what the agent is saying
+            }
         });
 
         s.on('connect', () => {
             console.log('✅ [Widget3] Socket connected');
+            setConnLost(false);
             // After a reconnect the server sees a new socket: reclaim the running session
             const active = callDataRef.current;
             if (active?.callId && active.sessionToken) {
@@ -192,30 +212,45 @@ export default function App() {
             }
         });
 
+        s.on('disconnect', () => {
+            if (callDataRef.current?.callId) setConnLost(true);
+        });
+
         s.on('session-resumed', ({ callId }) => console.log(`🔁 [Widget3] Session resumed: ${callId}`));
 
         s.on('session-expired', () => {
             callDataRef.current = null;
             clearSavedCall(productId);
+            setConnLost(false);
+            setEndReason('expired');
             setScreen('end');
         });
 
+        const clearStartTimeout = () => {
+            clearTimeout(startTimeoutRef.current);
+            startTimeoutRef.current = null;
+        };
+
         s.on('chat-started', (data) => {
-            setCallData(data);
+            clearStartTimeout();
+            setCallData({ startedAt: Date.now(), ...data });
             setScreen('calling');
         });
 
         s.on('demo-started', (data) => {
-            setCallData(data);
+            clearStartTimeout();
+            setCallData({ startedAt: Date.now(), ...data });
             setScreen('calling');
         });
 
         s.on('demo-error', (err) => {
+            clearStartTimeout();
             setErrorMessage(err.message || 'Session error');
             setScreen('landing');
         });
 
         s.on('demo-queued', (info) => {
+            clearStartTimeout();
             setQueueInfo(info);
             setScreen('queued');
         });
@@ -248,6 +283,14 @@ export default function App() {
             prospectEmail: userForm.email,
             audioFormats: ['pcm16', 'mp3']
         });
+
+        // Never leave the visitor on "Connecting…" forever if the reply doesn't come
+        clearTimeout(startTimeoutRef.current);
+        startTimeoutRef.current = setTimeout(() => {
+            if (screenRef.current !== 'loading') return;
+            setErrorMessage("We couldn't connect. Please try again in a moment.");
+            setScreen('landing');
+        }, 15000);
     };
 
     // End Chat
@@ -262,7 +305,7 @@ export default function App() {
         <img
             src={avatarImg}
             alt={persona.name}
-            onError={(e) => { e.target.src = FALLBACK_AVATAR_IMG; }}
+            onError={swapToFallback}
         />
     );
 
@@ -340,6 +383,12 @@ export default function App() {
             {(isExpanded || screen === 'calling') && (
                 <div className="modal-backdrop animate-fade-in" style={isExpanded ? undefined : { display: 'none' }}>
                     <div className="video-consultation-modal animate-scale-up">
+
+                        {connLost && screen === 'calling' && (
+                            <div className="conn-lost-banner" role="status">
+                                📡 Connection lost — reconnecting…
+                            </div>
+                        )}
 
                         {/* ── Screen A: Landing Form ── */}
                         {screen === 'landing' && (
@@ -480,16 +529,28 @@ export default function App() {
                                 <div className="end-avatar-circle">
                                     {avatarImgEl}
                                 </div>
-                                <h2>Thank You!</h2>
-                                <p className="end-desc">
-                                    {persona.name} has noted your questions and insights. Our team will follow up with you at <strong>{userForm.email || 'your email'}</strong>.
-                                </p>
+                                {endReason === 'expired' ? (
+                                    <>
+                                        <h2>Session Ended</h2>
+                                        <p className="end-desc">
+                                            The connection was lost and your session timed out. Your conversation so far was saved — start again whenever you're ready.
+                                        </p>
+                                    </>
+                                ) : (
+                                    <>
+                                        <h2>Thank You!</h2>
+                                        <p className="end-desc">
+                                            {persona.name} has noted your questions and insights. Our team will follow up with you at <strong>{userForm.email || 'your email'}</strong>.
+                                        </p>
+                                    </>
+                                )}
                                 <button
                                     type="button"
                                     className="start-consultation-btn"
                                     onClick={() => {
                                         setScreen('landing');
                                         setCallData(null);
+                                        setEndReason('');
                                     }}
                                 >
                                     🔄 Start Another Session

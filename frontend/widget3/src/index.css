@@ -218,6 +218,37 @@ body, html {
   position: relative;
 }
 
+/* Socket dropped mid-call */
+.conn-lost-banner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  background: rgba(244, 63, 94, 0.92);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  padding: 7px 12px;
+}
+
+/* Avatar video never arrived — voice still works */
+.audio-only-note {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(10, 12, 20, 0.7);
+  color: #cbd5e1;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 999px;
+  pointer-events: none;
+  z-index: 5;
+}
+
 /* ── 3. Screen: Landing Card ── */
 .landing-card-view {
   width: 100%;
@@ -695,6 +726,7 @@ body, html {
   width: 100%;
   height: 100%;
   display: flex;
+  position: relative;
   align-items: center;
   justify-content: center;
   position: relative;
@@ -845,6 +877,11 @@ body, html {
   color: #f1f5f9;
   margin-top: 4px;
   font-style: italic;
+  overflow-wrap: anywhere; /* long URLs/SKUs must not overflow at 360px */
+}
+
+.bubble-text {
+  overflow-wrap: anywhere;
 }
 
 /* ── 6. Knowledge Card (Interactive Slide-in Card) ── */
@@ -1248,6 +1285,7 @@ body, html {
   .video-consultation-modal {
     height: 100%;
     max-height: 100vh;
+    max-height: 100dvh; /* track the mobile keyboard / dynamic toolbars */
     border-radius: 0;
   }
   .chat-body-split {

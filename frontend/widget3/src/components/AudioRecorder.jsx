@@ -4,7 +4,8 @@ import { useRef, useCallback, useEffect, useState } from 'react';
 const DEFAULT_SPEECH_THRESHOLD  = 0.013;
 const SILENCE_DURATION_MS       = 550;
 const MIN_SPEECH_DURATION_MS    = 180;
-const MAX_RECORDING_DURATION_MS = 6000;
+// Generous cap — the silence detector (550ms) ends normal turns; this only guards runaway recordings
+const MAX_RECORDING_DURATION_MS = 30000;
 const SPEECH_CONFIRM_TICKS      = 2;
 
 export default function AudioRecorder({
@@ -149,6 +150,7 @@ export default function AudioRecorder({
             if (speechConfirmRef.current >= 3) {
                 speechConfirmRef.current = 0;
                 onInterruptRef.current?.();
+                startRecording(); // they're already talking — capture it instead of making them repeat
             }
             return;
         }
@@ -252,8 +254,10 @@ export default function AudioRecorder({
             <button
                 type="button"
                 className={`mic-btn ${isListening ? 'active' : ''} ${speechActive ? 'speaking' : ''} ${isMuted ? 'muted' : ''}`}
-                onClick={toggleMute}
-                title={isMuted ? 'Unmute Microphone' : speechActive ? 'Listening to you...' : 'Microphone Active'}
+                onClick={micDenied ? initAudio : toggleMute}
+                title={micDenied
+                    ? 'Microphone blocked — allow it in your browser settings, then tap to retry'
+                    : isMuted ? 'Unmute Microphone' : speechActive ? 'Listening to you...' : 'Microphone Active'}
             >
                 <div className={`mic-halo ${speechActive ? 'active' : ''}`} />
                 <span className="mic-icon">
@@ -262,7 +266,7 @@ export default function AudioRecorder({
             </button>
             <span className="mic-hint-text">
                 {micDenied
-                    ? 'Microphone blocked'
+                    ? 'Mic blocked — you can still type'
                     : isMuted
                     ? 'Mic Muted'
                     : speechActive
