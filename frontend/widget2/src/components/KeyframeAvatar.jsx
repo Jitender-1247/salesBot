@@ -79,7 +79,7 @@ function KeyframeVideoTrack({ speaking, onReady }) {
                     <div className={`avatar-ring ${speaking ? 'active' : ''}`} />
                     <div className={`avatar-ring avatar-ring-2 ${speaking ? 'active' : ''}`} />
                     <div className="avatar-photo-wrapper" style={{ width: '96px', height: '96px', borderRadius: '50%', overflow: 'hidden', border: speaking ? '3px solid #8b5cf6' : '3px solid rgba(167, 139, 250, 0.5)', boxShadow: speaking ? '0 0 24px rgba(139, 92, 246, 0.6)' : '0 8px 32px rgba(124, 58, 237, 0.3)', transition: 'all 0.3s ease' }}>
-                        <img src="/widget2/alex-avatar.png" alt="Sofia" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.src = '/alex-avatar.png'; }} />
+                        <img src="/widget2/alex-avatar.png" alt="Sofia" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.onerror = null; e.target.src = '/alex-avatar.png'; }} />
                     </div>
                 </div>
             )}
@@ -117,7 +117,7 @@ export default function KeyframeAvatar({ livekitUrl, token, speaking, onReady })
             <div className="avatar-3d-container" style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}>
                 <div className="avatar-fallback-wrapper" style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.05)' }}>
                     <div style={{ width: '96px', height: '96px', borderRadius: '50%', overflow: 'hidden', border: '3px solid rgba(167, 139, 250, 0.4)' }}>
-                        <img src="/widget2/alex-avatar.png" alt="Sofia" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.src = '/alex-avatar.png'; }} />
+                        <img src="/widget2/alex-avatar.png" alt="Sofia" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.onerror = null; e.target.src = '/alex-avatar.png'; }} />
                     </div>
                 </div>
             </div>

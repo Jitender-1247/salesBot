@@ -19,6 +19,11 @@ export default function App() {
     const [error, setError] = useState('');
     const [userForm, setUserForm] = useState({ name: '', email: '' });
     const [queueInfo, setQueueInfo] = useState(null);
+    const [connLost, setConnLost] = useState(false);
+    const [endReason, setEndReason] = useState(''); // '' | 'expired'
+    const screenRef = useRef(screen);
+    useEffect(() => { screenRef.current = screen; }, [screen]);
+    const startTimeoutRef = useRef(null);
 
     useEffect(() => {
         const s = io(SERVER_URL);
@@ -26,6 +31,7 @@ export default function App() {
 
         s.on('connect', () => {
             console.log('✅ [Widget2] Socket connected');
+            setConnLost(false);
             // After a reconnect the server sees a new socket: reclaim the running session
             const active = callDataRef.current;
             if (active?.callId && active.sessionToken) {
@@ -33,29 +39,41 @@ export default function App() {
             }
         });
 
+        s.on('disconnect', () => {
+            if (callDataRef.current?.callId) setConnLost(true);
+        });
+
         s.on('session-resumed', ({ callId }) => console.log(`🔁 [Widget2] Session resumed: ${callId}`));
 
         s.on('session-expired', () => {
             callDataRef.current = null;
+            setConnLost(false);
+            setEndReason('expired');
             setScreen('end');
         });
 
+        const clearStartTimeout = () => clearTimeout(startTimeoutRef.current);
+
         s.on('chat-started', (data) => {
+            clearStartTimeout();
             setCallData(data);
             setScreen('calling');
         });
 
         s.on('demo-started', (data) => {
+            clearStartTimeout();
             setCallData(data);
             setScreen('calling');
         });
 
         s.on('demo-error', (data) => {
+            clearStartTimeout();
             setError(data.message);
             setScreen('landing');
         });
 
         s.on('demo-queued', (data) => {
+            clearStartTimeout();
             setQueueInfo(data);
             setScreen('queued');
         });
@@ -81,6 +99,14 @@ export default function App() {
             prospectEmail: userForm.email,
         });
         setScreen('loading');
+
+        // Never leave the visitor on "Connecting…" forever if the reply doesn't come
+        clearTimeout(startTimeoutRef.current);
+        startTimeoutRef.current = setTimeout(() => {
+            if (screenRef.current !== 'loading') return;
+            setError("We couldn't connect. Please try again in a moment.");
+            setScreen('landing');
+        }, 15000);
     };
 
     const endChat = () => {
@@ -224,11 +250,22 @@ export default function App() {
     // ── Calling Screen ──
     if (screen === 'calling' && callData) {
         return (
-            <ChatView
-                callData={callData}
-                socket={socket}
-                onEnd={endChat}
-            />
+            <>
+                {connLost && (
+                    <div style={{
+                        position: 'fixed', top: 0, left: 0, right: 0, zIndex: 50,
+                        background: 'rgba(244, 63, 94, 0.92)', color: '#fff',
+                        fontSize: 12, fontWeight: 700, textAlign: 'center', padding: '7px 12px'
+                    }} role="status">
+                        📡 Connection lost — reconnecting…
+                    </div>
+                )}
+                <ChatView
+                    callData={callData}
+                    socket={socket}
+                    onEnd={endChat}
+                />
+            </>
         );
     }
 
@@ -237,10 +274,19 @@ export default function App() {
         return (
             <div className="thankyou-screen">
                 <div className="thankyou-card">
-                    <div className="thankyou-icon">🎉</div>
-                    <h2>Thanks for connecting!</h2>
-                    <p>Sofia has logged your conversation. Our team will follow up with you shortly.</p>
-                    <button className="start-btn mt-6" onClick={() => setScreen('landing')}>
+                    <div className="thankyou-icon">{endReason === 'expired' ? '📡' : '🎉'}</div>
+                    {endReason === 'expired' ? (
+                        <>
+                            <h2>Session Ended</h2>
+                            <p>The connection was lost and your session timed out. Start again whenever you're ready.</p>
+                        </>
+                    ) : (
+                        <>
+                            <h2>Thanks for connecting!</h2>
+                            <p>Sofia has logged your conversation. Our team will follow up with you shortly.</p>
+                        </>
+                    )}
+                    <button className="start-btn mt-6" onClick={() => { setScreen('landing'); setEndReason(''); }}>
                         🔄 Start New Session
                     </button>
                 </div>

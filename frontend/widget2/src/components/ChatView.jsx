@@ -22,7 +22,7 @@ function LocalAvatar({ speaking, onReady }) {
                 <img
                     src="/widget2/alex-avatar.png"
                     alt="Sofia"
-                    onError={(e) => { e.target.src = '/alex-avatar.png'; }}
+                    onError={(e) => { e.target.onerror = null; e.target.src = '/alex-avatar.png'; }}
                 />
             </div>
         </div>
@@ -243,7 +243,9 @@ export default function ChatView({ callData, socket, onEnd }) {
         audioPlayerRef.current?.stop();
         setAgentState('idle');
         setIsSpeaking(false);
-    }, []);
+        // Tell the backend too, or it keeps streaming this reply's audio
+        if (socket && callData) socket.emit('user-interrupt', { callId: callData.callId });
+    }, [socket, callData]);
 
     const handleAvatarReady = useCallback(() => {
         if (socket && callData) {

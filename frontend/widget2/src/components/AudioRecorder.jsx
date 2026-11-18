@@ -4,7 +4,7 @@ import { useRef, useCallback, useEffect, useState } from 'react';
 const DEFAULT_SPEECH_THRESHOLD  = 0.013; // above this = speech
 const SILENCE_DURATION_MS       = 550;   // ms of silence before utterance finishes (snappy response)
 const MIN_SPEECH_DURATION_MS    = 180;   // minimum speech length to send
-const MAX_RECORDING_DURATION_MS = 6000;  // hard safety limit: auto-send after 6s max continuous speech
+const MAX_RECORDING_DURATION_MS = 30000; // generous cap: the silence detector ends normal turns
 const SPEECH_CONFIRM_TICKS      = 2;     // consecutive ticks above threshold before recording starts
 
 export default function AudioRecorder({
