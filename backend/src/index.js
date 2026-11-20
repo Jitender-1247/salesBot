@@ -194,3 +194,9 @@ async function shutdown(signal) {
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
+
+// A stray rejected promise (e.g. a Redis command during a network blip) must never take the
+// whole server down with it — Node's default is to exit. Log it and keep serving calls.
+process.on('unhandledRejection', (err) => {
+    console.error('⚠️ Unhandled promise rejection (server kept alive):', err?.message || err);
+});

@@ -15,7 +15,9 @@ if (REDIS_URL) {
         retryStrategy: (times) => Math.min(times * 200, 5000),
         lazyConnect: true,
     });
-    subClient = pubClient.duplicate();
+    // The Socket.IO adapter awaits subscribe commands with no catch of its own: a transient
+    // DNS/connect failure at boot would reject them and crash the process. Queue instead.
+    subClient = pubClient.duplicate({ maxRetriesPerRequest: null });
 
     pubClient.on('connect', () => console.log('🔴 Redis pub client connected'));
     pubClient.on('error', (err) => console.log('❌ Redis pub error:', err.message));
