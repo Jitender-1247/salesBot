@@ -295,6 +295,12 @@ export async function exploreProduct(productId) {
     });
     await guardBrowserContext(browserContext);
     await primeConsentCookies(browserContext);
+    // The explorer only reads text: images, video and fonts are dead weight that OOMs small hosts
+    await browserContext.route('**/*', (route) => {
+        const type = route.request().resourceType();
+        if (type === 'image' || type === 'media' || type === 'font') return route.abort();
+        return route.continue();
+    });
     await browserContext.addInitScript(() => {
         Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
     });

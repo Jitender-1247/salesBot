@@ -44,6 +44,9 @@ services:
       - ./backend/src:/app/src
       - ./backend/public:/app/public
     restart: unless-stopped
+    # Hard cap: a hungry exploration crawl gets killed inside this container (and the
+    # restart policy revives it) instead of freezing the whole 1GB host.
+    mem_limit: 650m
 
   # ── Local STT Server (OPTIONAL — only needed if no cloud STT keys are set) ──
   # To start: docker compose --profile local-stt up -d
